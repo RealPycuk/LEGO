@@ -25,13 +25,13 @@ class LegoClassifier:
         # Рекурсивный CTE запрос для PostgreSQL
         sql = text("""
             WITH RECURSIVE ancestors(id) AS (
-                SELECT :new_parent_id
+                SELECT CAST(:new_parent_id AS INTEGER)
                 UNION ALL
                 SELECT родительский_id FROM классификатор 
                 INNER JOIN ancestors ON классификатор.id = ancestors.id
                 WHERE родительский_id IS NOT NULL
             )
-            SELECT COUNT(*) FROM ancestors WHERE id = :node_id
+            SELECT COUNT(*) FROM ancestors WHERE id = CAST(:node_id AS INTEGER)
         """)
         result = db.execute(sql, {"new_parent_id": new_parent_id, "node_id": node_id})
         return result.scalar() > 0
