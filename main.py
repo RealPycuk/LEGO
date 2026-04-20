@@ -345,6 +345,43 @@ def delete_enum_value(value_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
+@app.post("/reset-database")
+def reset_database():
+    """Полностью пересоздаёт базу данных (только для разработки!)"""
+    import psycopg2
+    from config import config
+    
+    try:
+        # Подключаемся к базе 'postgres' (административной) без использования SQLAlchemy
+        conn = psycopg2.connect(
+            host=config.DB_HOST,
+            port=config.DB_PORT,
+            user=config.DB_USER,
+            password=config.DB_PASSWORD,
+            database="postgres"
+        )
+        conn.autocommit = True  # Обязательно для DROP DATABASE
+        cursor = conn.cursor()
+        
+        # Закрываем все соединения с нашей БД
+        cursor.execute(f"""
+            SELECT pg_terminate_backend(pg_stat_activity.pid)
+            FROM pg_stat_activity
+            WHERE pg_stat_activity.datname = '{config.DB_NAME}'
+            AND pid <> pg_backend_pid()
+        """)
+        
+        # Удаляем и создаём базу заново
+        cursor.execute(f"DROP DATABASE IF EXISTS {config.DB_NAME}")
+        cursor.execute(f"CREATE DATABASE {config.DB_NAME}")
+        
+        cursor.close()
+        conn.close()
+        
+        return {"success": True, "message": f"База данных {config.DB_NAME} пересоздана. Перезапустите приложение."}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
 
 if __name__ == "__main__":
     import uvicorn

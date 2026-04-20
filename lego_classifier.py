@@ -563,7 +563,13 @@ class LegoClassifier:
     def get_enum_values(self, db: Session, enum_id: int) -> List[Dict[str, Any]]:
         """Получить все значения перечисления (сортировка по sort_order)"""
         values = db.query(EnumValue).filter(EnumValue.enumeration_id == enum_id).order_by(EnumValue.sort_order).all()
-        return [{"id": v.id, "value": v.value, "sort_order": v.sort_order, "extra_data": v.extra_data} for v in values]
+        return [{
+            "id": v.id, 
+            "enumeration_id": v.enumeration_id,
+            "value": v.value, 
+            "sort_order": v.sort_order, 
+            "extra_data": v.extra_data
+        } for v in values]
 
     def update_enum_value(self, db: Session, value_id: int, value: str = None, sort_order: int = None, extra_data: dict = None) -> Dict[str, Any]:
         """Обновить значение перечисления"""
