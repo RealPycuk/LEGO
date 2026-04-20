@@ -292,6 +292,7 @@ def load_test_data(db):
     db.add(SetMinifigure(id_набора=spaceship.id, id_фигурки=luke.id, количество_штук=1))
     
     db.commit()
+
     print("  Состав наборов добавлен")
     
     print("\n" + "="*50)
@@ -303,6 +304,8 @@ def load_test_data(db):
     print(f"  - Наборов: {db.query(Set).count()}")
     print(f"  - Деталей: {db.query(Part).count()}")
     print(f"  - Мини-фигурок: {db.query(Minifigure).count()}")
+    
+    print("  Тестовые перечисления добавлены")
 
 
 def main():

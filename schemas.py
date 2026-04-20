@@ -1,6 +1,6 @@
 # schemas.py
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from datetime import datetime
 
 # Category schemas
@@ -171,3 +171,38 @@ class SetContent(BaseModel):
     item_name: str
     quantity: int
     color: Optional[str] = None
+
+
+# Enumeration schemas
+class EnumerationCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class EnumerationResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+    values_count: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
+
+# EnumValue schemas
+class EnumValueCreate(BaseModel):
+    value: str
+    sort_order: Optional[int] = None
+    extra_data: Optional[Dict[str, Any]] = None
+
+class EnumValueResponse(BaseModel):
+    id: int
+    enumeration_id: int
+    value: str
+    sort_order: int
+    extra_data: Optional[Dict[str, Any]] = None
+
+    class Config:
+        from_attributes = True
+
+class EnumValueReorder(BaseModel):
+    ordered_ids: List[int]

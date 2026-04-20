@@ -269,6 +269,82 @@ def clear_database(db: Session = Depends(get_db)):
     classifier.clear_database(db)
     return {"success": True, "message": "База данных очищена"}
 
+@app.post("/enumerations", response_model=OperationResult)
+def create_enumeration(data: EnumerationCreate, db: Session = Depends(get_db)):
+    """Создать новое перечисление"""
+    result = classifier.add_enumeration(db, data.name, data.description)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/enumerations", response_model=List[EnumerationResponse])
+def get_enumerations(db: Session = Depends(get_db)):
+    """Получить все перечисления"""
+    return classifier.get_all_enumerations(db)
+
+@app.get("/enumerations/{enum_id}", response_model=EnumerationResponse)
+def get_enumeration(enum_id: int, db: Session = Depends(get_db)):
+    """Получить перечисление по ID"""
+    result = classifier.get_enumeration_by_id(db, enum_id)
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result["message"])
+    return result
+
+@app.put("/enumerations/{enum_id}", response_model=OperationResult)
+def update_enumeration(enum_id: int, data: EnumerationCreate, db: Session = Depends(get_db)):
+    """Обновить перечисление"""
+    result = classifier.update_enumeration(db, enum_id, data.name, data.description)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.delete("/enumerations/{enum_id}", response_model=OperationResult)
+def delete_enumeration(enum_id: int, db: Session = Depends(get_db)):
+    """Удалить перечисление"""
+    result = classifier.delete_enumeration(db, enum_id)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+# ----- Значения перечислений -----
+
+@app.post("/enumerations/{enum_id}/values", response_model=OperationResult)
+def create_enum_value(enum_id: int, data: EnumValueCreate, db: Session = Depends(get_db)):
+    """Добавить значение в перечисление"""
+    result = classifier.add_enum_value(db, enum_id, data.value, data.sort_order, data.extra_data)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/enumerations/{enum_id}/values", response_model=List[EnumValueResponse])
+def get_enum_values(enum_id: int, db: Session = Depends(get_db)):
+    """Получить все значения перечисления"""
+    return classifier.get_enum_values(db, enum_id)
+
+@app.put("/enum-values/{value_id}", response_model=OperationResult)
+def update_enum_value(value_id: int, data: EnumValueCreate, db: Session = Depends(get_db)):
+    """Обновить значение перечисления"""
+    result = classifier.update_enum_value(db, value_id, data.value, data.sort_order, data.extra_data)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.put("/enumerations/{enum_id}/values/reorder", response_model=OperationResult)
+def reorder_enum_values(enum_id: int, data: EnumValueReorder, db: Session = Depends(get_db)):
+    """Изменить порядок значений перечисления"""
+    result = classifier.reorder_enum_values(db, enum_id, data.ordered_ids)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.delete("/enum-values/{value_id}", response_model=OperationResult)
+def delete_enum_value(value_id: int, db: Session = Depends(get_db)):
+    """Удалить значение перечисления"""
+    result = classifier.delete_enum_value(db, value_id)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
 
 if __name__ == "__main__":
     import uvicorn

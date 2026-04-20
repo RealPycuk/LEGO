@@ -1,4 +1,6 @@
 # models.py
+from datetime import datetime
+from sqlalchemy import JSON, DateTime
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, CheckConstraint, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -134,3 +136,27 @@ class SetMinifigure(Base):
     # Relationships
     set = relationship("Set", back_populates="minifigures")
     minifigure = relationship("Minifigure", back_populates="sets")
+
+
+class Enumeration(Base):
+    """Справочник перечислений (тип enum)"""
+    __tablename__ = "перечисление"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    values = relationship("EnumValue", back_populates="enumeration", cascade="all, delete-orphan")
+
+class EnumValue(Base):
+    """Значение перечисления"""
+    __tablename__ = "значение_перечисления"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    enumeration_id = Column(Integer, ForeignKey("перечисление.id", ondelete="CASCADE"), nullable=False)
+    value = Column(String(200), nullable=False)
+    sort_order = Column(Integer, default=0)
+    extra_data = Column(JSON, nullable=True)
+
+    enumeration = relationship("Enumeration", back_populates="values")

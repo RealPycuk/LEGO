@@ -3,7 +3,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 
-from models import Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure, SetPart, SetMinifigure
+from models import Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure, SetPart, SetMinifigure, Enumeration, EnumValue
 
 
 class LegoClassifier:
@@ -466,6 +466,152 @@ class LegoClassifier:
             db.rollback()
             return {"success": False, "message": f"Ошибка: {str(e)}"}
     
+        # ========== ПЕРЕЧИСЛЕНИЯ (ЗАДАНИЕ 1.2) ==========
+
+    def add_enumeration(self, db: Session, name: str, description: str = None) -> Dict[str, Any]:
+        """Создать новое перечисление"""
+        exists = db.query(Enumeration).filter(Enumeration.name == name).first()
+        if exists:
+            return {"success": False, "message": f"Перечисление '{name}' уже существует"}
+        try:
+            enum = Enumeration(name=name, description=description)
+            db.add(enum)
+            db.commit()
+            db.refresh(enum)
+            return {"success": True, "message": "Перечисление создано", "enum_id": enum.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_all_enumerations(self, db: Session) -> List[Dict[str, Any]]:
+        """Получить все перечисления с количеством значений"""
+        enums = db.query(Enumeration).all()
+        result = []
+        for e in enums:
+            values_count = db.query(EnumValue).filter(EnumValue.enumeration_id == e.id).count()
+            result.append({
+                "id": e.id,
+                "name": e.name,
+                "description": e.description,
+                "created_at": e.created_at,
+                "values_count": values_count
+            })
+        return result
+
+    def get_enumeration_by_id(self, db: Session, enum_id: int) -> Dict[str, Any]:
+        """Получить перечисление по ID"""
+        enum = db.query(Enumeration).filter(Enumeration.id == enum_id).first()
+        if not enum:
+            return {"success": False, "message": "Перечисление не найдено"}
+        return {
+            "success": True,
+            "id": enum.id,
+            "name": enum.name,
+            "description": enum.description,
+            "created_at": enum.created_at
+        }
+
+    def update_enumeration(self, db: Session, enum_id: int, name: str = None, description: str = None) -> Dict[str, Any]:
+        """Обновить перечисление"""
+        enum = db.query(Enumeration).filter(Enumeration.id == enum_id).first()
+        if not enum:
+            return {"success": False, "message": "Перечисление не найдено"}
+        try:
+            if name is not None:
+                enum.name = name
+            if description is not None:
+                enum.description = description
+            db.commit()
+            return {"success": True, "message": "Перечисление обновлено"}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def delete_enumeration(self, db: Session, enum_id: int) -> Dict[str, Any]:
+        """Удалить перечисление (каскадно удалит все значения)"""
+        enum = db.query(Enumeration).filter(Enumeration.id == enum_id).first()
+        if not enum:
+            return {"success": False, "message": "Перечисление не найдено"}
+        try:
+            db.delete(enum)
+            db.commit()
+            return {"success": True, "message": "Перечисление удалено"}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    # ----- Значения перечислений -----
+
+    def add_enum_value(self, db: Session, enum_id: int, value: str, sort_order: int = None, extra_data: dict = None) -> Dict[str, Any]:
+        """Добавить значение в перечисление"""
+        enum = db.query(Enumeration).filter(Enumeration.id == enum_id).first()
+        if not enum:
+            return {"success": False, "message": "Перечисление не найдено"}
+        if sort_order is None:
+            max_order = db.query(func.coalesce(func.max(EnumValue.sort_order), 0)).filter(EnumValue.enumeration_id == enum_id).scalar()
+            sort_order = max_order + 1
+        try:
+            ev = EnumValue(enumeration_id=enum_id, value=value, sort_order=sort_order, extra_data=extra_data)
+            db.add(ev)
+            db.commit()
+            db.refresh(ev)
+            return {"success": True, "message": "Значение добавлено", "value_id": ev.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_enum_values(self, db: Session, enum_id: int) -> List[Dict[str, Any]]:
+        """Получить все значения перечисления (сортировка по sort_order)"""
+        values = db.query(EnumValue).filter(EnumValue.enumeration_id == enum_id).order_by(EnumValue.sort_order).all()
+        return [{"id": v.id, "value": v.value, "sort_order": v.sort_order, "extra_data": v.extra_data} for v in values]
+
+    def update_enum_value(self, db: Session, value_id: int, value: str = None, sort_order: int = None, extra_data: dict = None) -> Dict[str, Any]:
+        """Обновить значение перечисления"""
+        ev = db.query(EnumValue).filter(EnumValue.id == value_id).first()
+        if not ev:
+            return {"success": False, "message": "Значение не найдено"}
+        try:
+            if value is not None:
+                ev.value = value
+            if sort_order is not None:
+                ev.sort_order = sort_order
+            if extra_data is not None:
+                ev.extra_data = extra_data
+            db.commit()
+            return {"success": True, "message": "Значение обновлено"}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def reorder_enum_values(self, db: Session, enum_id: int, ordered_ids: List[int]) -> Dict[str, Any]:
+        """Изменить порядок значений перечисления"""
+        # Проверка, что все ID принадлежат этому перечислению
+        for idx, vid in enumerate(ordered_ids, start=1):
+            ev = db.query(EnumValue).filter(EnumValue.id == vid, EnumValue.enumeration_id == enum_id).first()
+            if not ev:
+                return {"success": False, "message": f"Значение {vid} не принадлежит перечислению {enum_id}"}
+        try:
+            for idx, vid in enumerate(ordered_ids, start=1):
+                db.query(EnumValue).filter(EnumValue.id == vid).update({"sort_order": idx})
+            db.commit()
+            return {"success": True, "message": "Порядок значений изменён"}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def delete_enum_value(self, db: Session, value_id: int) -> Dict[str, Any]:
+        """Удалить значение перечисления"""
+        ev = db.query(EnumValue).filter(EnumValue.id == value_id).first()
+        if not ev:
+            return {"success": False, "message": "Значение не найдено"}
+        try:
+            db.delete(ev)
+            db.commit()
+            return {"success": True, "message": "Значение удалено"}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+    
     def clear_database(self, db: Session):
         """Очистка базы данных"""
         db.query(SetMinifigure).delete()
@@ -477,6 +623,8 @@ class LegoClassifier:
         db.query(AgeCategory).delete()
         db.query(Theme).delete()
         db.query(Classificator).delete()
+        db.query(Enumeration).delete()
+        db.query(EnumValue).delete()
         db.commit()
         print("База данных очищена")
     
@@ -604,5 +752,44 @@ class LegoClassifier:
         db.add(SetMinifigure(id_набора=spaceship.id, id_фигурки=luke.id, количество_штук=1))
         
         db.commit()
+
+        # ========== ПЕРЕЧИСЛЕНИЯ ==========
+        print("  Добавляем тестовые перечисления...")
+        
+        # Перечисление "Тип детали"
+        enum_part_type = self.add_enumeration(db, "Тип детали", "Типы деталей LEGO")
+        if enum_part_type["success"]:
+            enum_id = enum_part_type["enum_id"]
+            self.add_enum_value(db, enum_id, "Кирпич", 1)
+            self.add_enum_value(db, enum_id, "Плита", 2)
+            self.add_enum_value(db, enum_id, "Техническая", 3)
+            self.add_enum_value(db, enum_id, "Специальная", 4)
+        else:
+            print(f"    Ошибка: {enum_part_type['message']}")
+        
+        # Перечисление "Цвет детали"
+        enum_color = self.add_enumeration(db, "Цвет детали", "Цвета деталей LEGO")
+        if enum_color["success"]:
+            enum_id = enum_color["enum_id"]
+            self.add_enum_value(db, enum_id, "Красный", 1)
+            self.add_enum_value(db, enum_id, "Синий", 2)
+            self.add_enum_value(db, enum_id, "Зелёный", 3)
+            self.add_enum_value(db, enum_id, "Белый", 4)
+            self.add_enum_value(db, enum_id, "Чёрный", 5)
+        else:
+            print(f"    Ошибка: {enum_color['message']}")
+        
+        # Перечисление "Редкость мини-фигурки"
+        enum_rarity = self.add_enumeration(db, "Редкость", "Редкость мини-фигурок")
+        if enum_rarity["success"]:
+            enum_id = enum_rarity["enum_id"]
+            self.add_enum_value(db, enum_id, "Common", 1)
+            self.add_enum_value(db, enum_id, "Rare", 2)
+            self.add_enum_value(db, enum_id, "Exclusive", 3)
+        else:
+            print(f"    Ошибка: {enum_rarity['message']}")
+        
+        db.commit()
+        print("  Тестовые перечисления добавлены")
         
         return {"success": True, "message": "Тестовые данные успешно загружены"}
