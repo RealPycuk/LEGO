@@ -160,3 +160,70 @@ class EnumValue(Base):
     extra_data = Column(JSON, nullable=True)
 
     enumeration = relationship("Enumeration", back_populates="values")
+
+# ========== НОВЫЕ ТАБЛИЦЫ ДЛЯ ЗАДАНИЯ 1.3 (СПРАВОЧНИК ИЗДЕЛИЙ С ПАРАМЕТРАМИ) ==========
+
+class Parameter(Base):
+    """Параметр — характеристика, которую можно измерять"""
+    __tablename__ = "параметр"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    обозначение = Column(String(50), nullable=False, unique=True)   # "вес", "длина"
+    полное_имя = Column(String(200), nullable=False)                # "Вес изделия"
+    единица_измерения = Column(String(20))                         # "кг", "мм"
+    тип_параметра = Column(String(20), nullable=False)             # REAL, INTEGER, STRING, DATETIME, ENUM
+    перечисление_id = Column(Integer, ForeignKey("перечисление.id", ondelete="SET NULL"), nullable=True)
+    
+    # Relationships
+    class_links = relationship("ParameterClass", back_populates="parameter")
+
+class ParameterClass(Base):
+    """Привязка параметра к классу изделий (с ограничениями)"""
+    __tablename__ = "параметр_класса"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    класс_id = Column(Integer, ForeignKey("классификатор.id", ondelete="CASCADE"), nullable=False)
+    параметр_id = Column(Integer, ForeignKey("параметр.id", ondelete="CASCADE"), nullable=False)
+    порядковый_номер = Column(Integer, default=0)
+    мин_значение = Column(Float, nullable=True)
+    макс_значение = Column(Float, nullable=True)
+    значение_по_умолчанию = Column(Text, nullable=True)
+    обязательный = Column(Integer, default=0)  # 0 = нет, 1 = да
+    
+    # Relationships
+    parameter = relationship("Parameter", back_populates="class_links")
+    class_node = relationship("Classificator", foreign_keys=[класс_id])
+    values = relationship("ParameterValue", back_populates="parameter_class")
+
+
+class Product(Base):
+    """Конкретное изделие (экземпляр)"""
+    __tablename__ = "изделие"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    класс_id = Column(Integer, ForeignKey("классификатор.id", ondelete="CASCADE"), nullable=False)
+    наименование = Column(String(200), nullable=False)
+    артикул = Column(String(50), unique=True, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    class_node = relationship("Classificator", foreign_keys=[класс_id])
+    parameter_values = relationship("ParameterValue", back_populates="product", cascade="all, delete-orphan")
+
+
+class ParameterValue(Base):
+    """Значение параметра для конкретного изделия"""
+    __tablename__ = "значение_параметра"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    изделие_id = Column(Integer, ForeignKey("изделие.id", ondelete="CASCADE"), nullable=False)
+    параметр_класса_id = Column(Integer, ForeignKey("параметр_класса.id", ondelete="CASCADE"), nullable=False)
+    значение_число = Column(Float, nullable=True)
+    значение_строка = Column(Text, nullable=True)
+    значение_дата = Column(DateTime, nullable=True)
+    значение_перечисление_id = Column(Integer, ForeignKey("значение_перечисления.id", ondelete="SET NULL"), nullable=True)
+    
+    # Relationships
+    product = relationship("Product", back_populates="parameter_values")
+    parameter_class = relationship("ParameterClass", back_populates="values")
+    enum_value = relationship("EnumValue", foreign_keys=[значение_перечисление_id])

@@ -382,7 +382,79 @@ def reset_database():
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+# ==================== PARAMETERS (ЗАДАНИЕ 1.3) ====================
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.post("/parameters", response_model=OperationResult)
+def create_parameter(data: ParameterCreate, db: Session = Depends(get_db)):
+    """Создать новый параметр"""
+    result = classifier.add_parameter(
+        db, data.обозначение, data.полное_имя,
+        data.тип_параметра, data.единица_измерения, data.перечисление_id
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/parameters", response_model=List[ParameterResponse])
+def get_parameters(db: Session = Depends(get_db)):
+    """Получить все параметры"""
+    return classifier.get_all_parameters(db)
+
+# ==================== CLASS PARAMETERS ====================
+
+@app.get("/classes/{class_id}/parameters", response_model=List[Dict[str, Any]])
+def get_class_parameters(class_id: int, include_inherited: bool = True, db: Session = Depends(get_db)):
+    """Получить параметры класса (с наследованием)"""
+    return classifier.get_class_parameters(db, class_id, include_inherited)
+
+@app.post("/classes/{class_id}/parameters", response_model=OperationResult)
+def add_param_to_class(class_id: int, data: ParameterClassCreate, db: Session = Depends(get_db)):
+    """Привязать параметр к классу"""
+    result = classifier.add_param_to_class(
+        db, class_id, data.параметр_id,
+        data.мин_значение, data.макс_значение,
+        data.значение_по_умолчанию, data.обязательный
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+# ==================== PRODUCTS ====================
+
+@app.post("/products", response_model=OperationResult)
+def create_product(data: ProductCreate, db: Session = Depends(get_db)):
+    """Создать новое изделие"""
+    result = classifier.add_product(db, data.класс_id, data.наименование, data.артикул)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/products", response_model=List[ProductResponse])
+def get_products(db: Session = Depends(get_db)):
+    """Получить все изделия"""
+    return classifier.get_all_products(db)
+
+@app.get("/products/{product_id}/values", response_model=List[Dict[str, Any]])
+def get_product_values(product_id: int, db: Session = Depends(get_db)):
+    """Получить все значения параметров изделия"""
+    return classifier.get_product_params_with_values(db, product_id)
+
+@app.post("/products/{product_id}/values", response_model=OperationResult)
+def set_product_value(product_id: int, data: ParameterValueCreate, db: Session = Depends(get_db)):
+    """Установить значение параметра для изделия"""
+    result = classifier.set_product_param_value(db, product_id, data.param_class_id, data.value)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+# ==================== FILTER ====================
+
+@app.post("/products/filter")
+def filter_products(data: ProductFilter, db: Session = Depends(get_db)):
+    """Фильтрация изделий по классам и параметрам"""
+    param_filters = []
+    if data.param_filters:
+        param_filters = [pf.dict() for pf in data.param_filters]
+    result = classifier.filter_products(db, data.class_ids, param_filters)
+    return result
+

@@ -7,7 +7,12 @@ from sqlalchemy.orm import sessionmaker
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from config import config
-from models import Base, Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure, SetPart, SetMinifigure
+from models import (
+    Base, Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure, 
+    SetPart, SetMinifigure, Enumeration, EnumValue,
+    Parameter, ParameterClass, Product, ParameterValue
+)
+from lego_classifier import LegoClassifier
 
 engine = create_engine(config.DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -294,6 +299,84 @@ def load_test_data(db):
     db.commit()
 
     print("  Состав наборов добавлен")
+
+    # ========== ПАРАМЕТРЫ ДЛЯ СПРАВОЧНИКА (ЗАДАНИЕ 1.3) ==========
+    print("  Добавляем параметры для справочника...")
+    
+    # Создаём экземпляр классификатора
+    classifier = LegoClassifier(engine)
+    
+    # Получаем перечисление "Цвет детали" (создано ранее)
+    enum_color = db.query(Enumeration).filter(Enumeration.name == "Цвет детали").first()
+    
+    # Создаём параметры
+    вес_param = classifier.add_parameter(db, "вес", "Вес изделия", "REAL", "кг")
+    длина_param = classifier.add_parameter(db, "длина", "Длина изделия", "REAL", "мм")
+    цвет_param = classifier.add_parameter(db, "цвет", "Цвет изделия", "ENUM", перечисление_id=enum_color.id if enum_color else None)
+    материал_param = classifier.add_parameter(db, "материал", "Материал изделия", "STRING")
+    
+    # Привязываем параметры к классу "Кирпич 2x4"
+    brick_2x4 = db.query(Classificator).filter(Classificator.название == "Кирпич 2x4").first()
+    if brick_2x4:
+        if вес_param["success"]:
+            classifier.add_param_to_class(db, brick_2x4.id, вес_param["param_id"], мин_значение=0, макс_значение=10)
+        if длина_param["success"]:
+            classifier.add_param_to_class(db, brick_2x4.id, длина_param["param_id"], мин_значение=0, макс_значение=100)
+        if цвет_param["success"]:
+            classifier.add_param_to_class(db, brick_2x4.id, цвет_param["param_id"])
+        if материал_param["success"]:
+            classifier.add_param_to_class(db, brick_2x4.id, материал_param["param_id"])
+    
+    # Создаём тестовые изделия
+    classifier.add_product(db, brick_2x4.id, "Кирпич красный", "BR001")
+    classifier.add_product(db, brick_2x4.id, "Кирпич синий", "BR002")
+    
+    # Устанавливаем значения параметров для изделий
+    brick_red = db.query(Product).filter(Product.артикул == "BR001").first()
+    brick_blue = db.query(Product).filter(Product.артикул == "BR002").first()
+    
+    # Получаем ParameterClass ID для каждого параметра
+    if brick_2x4:
+        вес_pc = db.query(ParameterClass).join(Parameter).filter(
+            ParameterClass.класс_id == brick_2x4.id,
+            Parameter.обозначение == "вес"
+        ).first()
+        длина_pc = db.query(ParameterClass).join(Parameter).filter(
+            ParameterClass.класс_id == brick_2x4.id,
+            Parameter.обозначение == "длина"
+        ).first()
+        цвет_pc = db.query(ParameterClass).join(Parameter).filter(
+            ParameterClass.класс_id == brick_2x4.id,
+            Parameter.обозначение == "цвет"
+        ).first()
+        
+        if brick_red and вес_pc:
+            classifier.set_product_param_value(db, brick_red.id, вес_pc.id, 2.5)
+        if brick_red and длина_pc:
+            classifier.set_product_param_value(db, brick_red.id, длина_pc.id, 50.0)
+        if brick_red and цвет_pc and enum_color:
+            # Находим ID значения "Красный" в перечислении
+            red_val = db.query(EnumValue).filter(
+                EnumValue.enumeration_id == enum_color.id,
+                EnumValue.value == "Красный"
+            ).first()
+            if red_val:
+                classifier.set_product_param_value(db, brick_red.id, цвет_pc.id, red_val.id)
+        
+        if brick_blue and вес_pc:
+            classifier.set_product_param_value(db, brick_blue.id, вес_pc.id, 2.5)
+        if brick_blue and длина_pc:
+            classifier.set_product_param_value(db, brick_blue.id, длина_pc.id, 50.0)
+        if brick_blue and цвет_pc and enum_color:
+            blue_val = db.query(EnumValue).filter(
+                EnumValue.enumeration_id == enum_color.id,
+                EnumValue.value == "Синий"
+            ).first()
+            if blue_val:
+                classifier.set_product_param_value(db, brick_blue.id, цвет_pc.id, blue_val.id)
+    
+    db.commit()
+    print("  Параметры и изделия добавлены")
     
     print("\n" + "="*50)
     print("ТЕСТОВЫЕ ДАННЫЕ УСПЕШНО ЗАГРУЖЕНЫ!")

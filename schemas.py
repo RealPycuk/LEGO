@@ -206,3 +206,88 @@ class EnumValueResponse(BaseModel):
 
 class EnumValueReorder(BaseModel):
     ordered_ids: List[int]
+
+# ========== НОВЫЕ СХЕМЫ ДЛЯ ЗАДАНИЯ 1.3 (СПРАВОЧНИК ИЗДЕЛИЙ) ==========
+
+# Parameter schemas
+class ParameterCreate(BaseModel):
+    обозначение: str
+    полное_имя: str
+    тип_параметра: str  # REAL, INTEGER, STRING, DATETIME, ENUM
+    единица_измерения: Optional[str] = None
+    перечисление_id: Optional[int] = None
+
+class ParameterResponse(BaseModel):
+    id: int
+    обозначение: str
+    полное_имя: str
+    единица_измерения: Optional[str] = None
+    тип_параметра: str
+    перечисление_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+# ParameterClass schemas
+class ParameterClassCreate(BaseModel):
+    параметр_id: int
+    мин_значение: Optional[float] = None
+    макс_значение: Optional[float] = None
+    значение_по_умолчанию: Optional[str] = None
+    обязательный: bool = False
+
+class ParameterClassResponse(BaseModel):
+    id: int
+    класс_id: int
+    параметр_id: int
+    порядковый_номер: int
+    мин_значение: Optional[float] = None
+    макс_значение: Optional[float] = None
+    значение_по_умолчанию: Optional[str] = None
+    обязательный: bool
+
+    class Config:
+        from_attributes = True
+
+# Product schemas
+class ProductCreate(BaseModel):
+    класс_id: int
+    наименование: str
+    артикул: Optional[str] = None
+
+class ProductResponse(BaseModel):
+    id: int
+    наименование: str
+    артикул: Optional[str] = None
+    класс_id: int
+    класс_название: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# ParameterValue schemas
+class ParameterValueCreate(BaseModel):
+    param_class_id: int
+    value: Any  # может быть число, строка, дата или ID перечисления
+
+class ParameterValueResponse(BaseModel):
+    param_class_id: int
+    обозначение: str
+    полное_имя: str
+    тип_параметра: str
+    единица_измерения: Optional[str] = None
+    значение: Any
+    обязательный: bool
+
+# Filter schemas
+class ParamFilter(BaseModel):
+    param_code: str
+    operator: str  # =, >, <, between
+    value: Optional[Any] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+
+class ProductFilter(BaseModel):
+    class_ids: Optional[List[int]] = None
+    param_filters: Optional[List[ParamFilter]] = None

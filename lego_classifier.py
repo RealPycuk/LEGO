@@ -2,8 +2,9 @@
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
+from datetime import datetime
 
-from models import Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure, SetPart, SetMinifigure, Enumeration, EnumValue
+from models import Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure, SetPart, SetMinifigure, Enumeration, EnumValue, Parameter, ParameterClass, Product, ParameterValue
 
 
 class LegoClassifier:
@@ -799,3 +800,401 @@ class LegoClassifier:
         print("  Тестовые перечисления добавлены")
         
         return {"success": True, "message": "Тестовые данные успешно загружены"}
+    
+
+        # ========== ПАРАМЕТРЫ (ЗАДАНИЕ 1.3) ==========
+
+    # ----- Управление параметрами -----
+    
+    def add_parameter(self, db: Session, обозначение: str, полное_имя: str,
+                      тип_параметра: str, единица_измерения: str = None,
+                      перечисление_id: int = None) -> Dict[str, Any]:
+        """Создать новый параметр"""
+        # Проверка типа
+        valid_types = ['REAL', 'INTEGER', 'STRING', 'DATETIME', 'ENUM']
+        if тип_параметра not in valid_types:
+            return {"success": False, "message": f"Недопустимый тип. Допустимы: {valid_types}"}
+        
+        # Для ENUM обязательно указать перечисление
+        if тип_параметра == 'ENUM' and not перечисление_id:
+            return {"success": False, "message": "Для типа ENUM необходимо указать перечисление_id"}
+        
+        # Проверка уникальности
+        exists = db.query(Parameter).filter(Parameter.обозначение == обозначение).first()
+        if exists:
+            return {"success": False, "message": f"Параметр с обозначением '{обозначение}' уже существует"}
+        
+        try:
+            new_param = Parameter(
+                обозначение=обозначение,
+                полное_имя=полное_имя,
+                единица_измерения=единица_измерения,
+                тип_параметра=тип_параметра,
+                перечисление_id=перечисление_id
+            )
+            db.add(new_param)
+            db.commit()
+            db.refresh(new_param)
+            return {"success": True, "message": "Параметр создан", "param_id": new_param.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_all_parameters(self, db: Session) -> List[Dict[str, Any]]:
+        """Получить все параметры"""
+        params = db.query(Parameter).all()
+        result = []
+        for p in params:
+            result.append({
+                "id": p.id,
+                "обозначение": p.обозначение,
+                "полное_имя": p.полное_имя,
+                "единица_измерения": p.единица_измерения,
+                "тип_параметра": p.тип_параметра,
+                "перечисление_id": p.перечисление_id
+            })
+        return result
+
+    # ----- Привязка параметров к классам -----
+
+    def add_param_to_class(self, db: Session, класс_id: int, параметр_id: int,
+                           мин_значение: float = None, макс_значение: float = None,
+                           значение_по_умолчанию: str = None, обязательный: bool = False) -> Dict[str, Any]:
+        """Привязать параметр к классу изделий"""
+        # Проверка существования класса
+        class_node = db.query(Classificator).filter(Classificator.id == класс_id).first()
+        if not class_node:
+            return {"success": False, "message": "Класс не найден"}
+        
+        # Проверка существования параметра
+        param = db.query(Parameter).filter(Parameter.id == параметр_id).first()
+        if not param:
+            return {"success": False, "message": "Параметр не найден"}
+        
+        # Проверка дублирования
+        exists = db.query(ParameterClass).filter(
+            ParameterClass.класс_id == класс_id,
+            ParameterClass.параметр_id == параметр_id
+        ).first()
+        if exists:
+            return {"success": False, "message": "Параметр уже привязан к этому классу"}
+        
+        # Валидация ограничений
+        if param.тип_параметра not in ('REAL', 'INTEGER') and (мин_значение is not None or макс_значение is not None):
+            return {"success": False, "message": "Ограничения (мин/макс) можно задавать только для численных параметров"}
+        
+        if мин_значение is not None and макс_значение is not None and мин_значение >= макс_значение:
+            return {"success": False, "message": "Минимальное значение должно быть меньше максимального"}
+        
+        # Определяем порядковый номер
+        max_order = db.query(func.coalesce(func.max(ParameterClass.порядковый_номер), 0)).filter(
+            ParameterClass.класс_id == класс_id
+        ).scalar()
+        
+        try:
+            new_pc = ParameterClass(
+                класс_id=класс_id,
+                параметр_id=параметр_id,
+                порядковый_номер=max_order + 1,
+                мин_значение=мин_значение,
+                макс_значение=макс_значение,
+                значение_по_умолчанию=значение_по_умолчанию,
+                обязательный=1 if обязательный else 0
+            )
+            db.add(new_pc)
+            db.commit()
+            db.refresh(new_pc)
+            return {"success": True, "message": "Параметр привязан к классу", "param_class_id": new_pc.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_class_parameters(self, db: Session, класс_id: int, include_inherited: bool = True) -> List[Dict[str, Any]]:
+        """Получить все параметры класса (с учётом наследования, если нужно)"""
+        result = []
+        class_ids = [класс_id]
+        
+        if include_inherited:
+            # Получаем всех предков
+            ancestors = self.get_ancestors(db, класс_id)
+            class_ids.extend([a["id"] for a in ancestors])
+        
+        # Получаем все ParameterClass для этих классов
+        param_classes = db.query(ParameterClass).filter(ParameterClass.класс_id.in_(class_ids)).all()
+        
+        for pc in param_classes:
+            param = db.query(Parameter).filter(Parameter.id == pc.параметр_id).first()
+            result.append({
+                "param_class_id": pc.id,
+                "параметр_id": param.id,
+                "обозначение": param.обозначение,
+                "полное_имя": param.полное_имя,
+                "тип_параметра": param.тип_параметра,
+                "единица_измерения": param.единица_измерения,
+                "мин_значение": pc.мин_значение,
+                "макс_значение": pc.макс_значение,
+                "значение_по_умолчанию": pc.значение_по_умолчанию,
+                "обязательный": pc.обязательный,
+                "порядковый_номер": pc.порядковый_номер,
+                "класс_источник": pc.класс_id
+            })
+        
+        # Сортируем по порядковому номеру
+        result.sort(key=lambda x: x["порядковый_номер"])
+        return result
+
+    # ----- Управление изделиями -----
+
+    def add_product(self, db: Session, класс_id: int, наименование: str, артикул: str = None) -> Dict[str, Any]:
+        """Создать новое изделие"""
+        # Проверка существования класса
+        class_node = db.query(Classificator).filter(Classificator.id == класс_id).first()
+        if not class_node:
+            return {"success": False, "message": "Класс не найден"}
+        
+        # Проверка уникальности артикула
+        if артикул:
+            exists = db.query(Product).filter(Product.артикул == артикул).first()
+            if exists:
+                return {"success": False, "message": f"Изделие с артикулом '{артикул}' уже существует"}
+        
+        try:
+            new_product = Product(
+                класс_id=класс_id,
+                наименование=наименование,
+                артикул=артикул
+            )
+            db.add(new_product)
+            db.commit()
+            db.refresh(new_product)
+            return {"success": True, "message": "Изделие создано", "product_id": new_product.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_all_products(self, db: Session) -> List[Dict[str, Any]]:
+        """Получить все изделия"""
+        products = db.query(Product).all()
+        result = []
+        for p in products:
+            class_node = db.query(Classificator).filter(Classificator.id == p.класс_id).first()
+            result.append({
+                "id": p.id,
+                "наименование": p.наименование,
+                "артикул": p.артикул,
+                "класс_id": p.класс_id,
+                "класс_название": class_node.название if class_node else None,
+                "created_at": p.created_at
+            })
+        return result
+
+    # ----- Работа со значениями параметров -----
+
+    def _validate_param_value(self, db: Session, param: Parameter, param_class: ParameterClass, value: Any) -> Dict:
+        """Валидация значения параметра (внутренний метод)"""
+        if param.тип_параметра == 'REAL':
+            try:
+                num_val = float(value)
+            except (ValueError, TypeError):
+                return {"success": False, "message": f"Значение '{value}' не является числом"}
+            if param_class.мин_значение is not None and num_val < param_class.мин_значение:
+                return {"success": False, "message": f"Значение {num_val} меньше минимального {param_class.мин_значение}"}
+            if param_class.макс_значение is not None and num_val > param_class.макс_значение:
+                return {"success": False, "message": f"Значение {num_val} больше максимального {param_class.макс_значение}"}
+            return {"success": True, "число": num_val}
+        
+        elif param.тип_параметра == 'INTEGER':
+            try:
+                int_val = int(value)
+            except (ValueError, TypeError):
+                return {"success": False, "message": f"Значение '{value}' не является целым числом"}
+            if param_class.мин_значение is not None and int_val < param_class.мин_значение:
+                return {"success": False, "message": f"Значение {int_val} меньше минимального {param_class.мин_значение}"}
+            if param_class.макс_значение is not None and int_val > param_class.макс_значение:
+                return {"success": False, "message": f"Значение {int_val} больше максимального {param_class.макс_значение}"}
+            return {"success": True, "число": int_val}
+        
+        elif param.тип_параметра == 'STRING':
+            return {"success": True, "строка": str(value)}
+        
+        elif param.тип_параметра == 'DATETIME':
+            try:
+                if isinstance(value, datetime):
+                    dt_val = value
+                else:
+                    dt_val = datetime.fromisoformat(str(value))
+            except:
+                return {"success": False, "message": f"Значение '{value}' не является датой"}
+            return {"success": True, "дата": dt_val}
+        
+        elif param.тип_параметра == 'ENUM':
+            if not param.перечисление_id:
+                return {"success": False, "message": "Для параметра-перечисления не указано перечисление"}
+            enum_value = db.query(EnumValue).filter(
+                EnumValue.id == value,
+                EnumValue.enumeration_id == param.перечисление_id
+            ).first()
+            if not enum_value:
+                return {"success": False, "message": f"Значение с ID {value} не найдено в перечислении"}
+            return {"success": True, "перечисление_id": enum_value.id}
+        
+        return {"success": False, "message": f"Неизвестный тип параметра: {param.тип_параметра}"}
+
+    def set_product_param_value(self, db: Session, product_id: int, param_class_id: int, value: Any) -> Dict[str, Any]:
+        """Установить значение параметра для изделия"""
+        # Проверка существования изделия
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            return {"success": False, "message": "Изделие не найдено"}
+        
+        # Получаем информацию о привязке параметра
+        param_class = db.query(ParameterClass).filter(ParameterClass.id == param_class_id).first()
+        if not param_class:
+            return {"success": False, "message": "Привязка параметра к классу не найдена"}
+        
+        param = db.query(Parameter).filter(Parameter.id == param_class.параметр_id).first()
+        
+        # Проверка, что класс изделия соответствует или наследует класс параметра
+        if product.класс_id != param_class.класс_id:
+            ancestors = self.get_ancestors(db, product.класс_id)
+            ancestor_ids = [a["id"] for a in ancestors]
+            if param_class.класс_id not in ancestor_ids:
+                return {"success": False, "message": "Параметр не принадлежит классу изделия или его предкам"}
+        
+        # Валидация значения
+        validated = self._validate_param_value(db, param, param_class, value)
+        if not validated["success"]:
+            return validated
+        
+        # Сохраняем или обновляем значение
+        existing = db.query(ParameterValue).filter(
+            ParameterValue.изделие_id == product_id,
+            ParameterValue.параметр_класса_id == param_class_id
+        ).first()
+        
+        try:
+            if existing:
+                existing.значение_число = validated.get("число")
+                existing.значение_строка = validated.get("строка")
+                existing.значение_дата = validated.get("дата")
+                existing.значение_перечисление_id = validated.get("перечисление_id")
+            else:
+                new_val = ParameterValue(
+                    изделие_id=product_id,
+                    параметр_класса_id=param_class_id,
+                    значение_число=validated.get("число"),
+                    значение_строка=validated.get("строка"),
+                    значение_дата=validated.get("дата"),
+                    значение_перечисление_id=validated.get("перечисление_id")
+                )
+                db.add(new_val)
+            db.commit()
+            return {"success": True, "message": "Значение сохранено"}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_product_params_with_values(self, db: Session, product_id: int) -> List[Dict[str, Any]]:
+        """Получить все параметры изделия с их значениями"""
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            return []
+        
+        # Получаем все параметры класса (с наследованием)
+        class_params = self.get_class_parameters(db, product.класс_id, include_inherited=True)
+        
+        result = []
+        for cp in class_params:
+            param_value = db.query(ParameterValue).filter(
+                ParameterValue.изделие_id == product_id,
+                ParameterValue.параметр_класса_id == cp["param_class_id"]
+            ).first()
+            
+            value_display = None
+            if param_value:
+                if cp["тип_параметра"] == 'REAL' or cp["тип_параметра"] == 'INTEGER':
+                    value_display = param_value.значение_число
+                elif cp["тип_параметра"] == 'STRING':
+                    value_display = param_value.значение_строка
+                elif cp["тип_параметра"] == 'DATETIME':
+                    value_display = param_value.значение_дата.isoformat() if param_value.значение_дата else None
+                elif cp["тип_параметра"] == 'ENUM':
+                    if param_value.значение_перечисление_id:
+                        enum_val = db.query(EnumValue).filter(EnumValue.id == param_value.значение_перечисление_id).first()
+                        value_display = enum_val.value if enum_val else None
+            
+            result.append({
+                "param_class_id": cp["param_class_id"],
+                "обозначение": cp["обозначение"],
+                "полное_имя": cp["полное_имя"],
+                "тип_параметра": cp["тип_параметра"],
+                "единица_измерения": cp["единица_измерения"],
+                "значение": value_display,
+                "значение_по_умолчанию": cp["значение_по_умолчанию"],
+                "обязательный": cp["обязательный"]
+            })
+        
+        return result
+
+    # ----- Фильтрация изделий по параметрам -----
+
+    def filter_products(self, db: Session, class_ids: List[int] = None,
+                        param_filters: List[Dict] = None) -> List[Dict[str, Any]]:
+        """
+        Фильтрация изделий по классам и параметрам
+        
+        param_filters пример:
+        [
+            {"param_code": "вес", "operator": ">", "value": 10},
+            {"param_code": "цвет", "operator": "=", "value": 5},
+            {"operator": "between", "min": 100, "max": 200}
+        ]
+        """
+        query = db.query(Product)
+        
+        # Фильтрация по классам (включая потомков)
+        if class_ids:
+            all_class_ids = set(class_ids)
+            for cid in class_ids:
+                descendants = self.get_descendants(db, cid)
+                all_class_ids.update([d["id"] for d in descendants])
+            query = query.filter(Product.класс_id.in_(all_class_ids))
+        
+        # Применяем фильтры по параметрам
+        for pf in param_filters:
+            param = db.query(Parameter).filter(Parameter.обозначение == pf.get("param_code")).first()
+            if not param:
+                continue
+            
+            # Получаем ParameterClass для всех нужных классов
+            param_class_subq = db.query(ParameterClass.id).filter(
+                ParameterClass.параметр_id == param.id
+            ).subquery()
+            
+            if pf.get("operator") == "=":
+                query = query.join(ParameterValue, ParameterValue.изделие_id == Product.id)\
+                             .filter(ParameterValue.параметр_класса_id.in_(param_class_subq))
+                if param.тип_параметра in ('REAL', 'INTEGER'):
+                    query = query.filter(ParameterValue.значение_число == pf["value"])
+                elif param.тип_параметра == 'STRING':
+                    query = query.filter(ParameterValue.значение_строка == pf["value"])
+                elif param.тип_параметра == 'ENUM':
+                    query = query.filter(ParameterValue.значение_перечисление_id == pf["value"])
+            
+            elif pf.get("operator") == ">":
+                query = query.join(ParameterValue, ParameterValue.изделие_id == Product.id)\
+                             .filter(ParameterValue.параметр_класса_id.in_(param_class_subq))\
+                             .filter(ParameterValue.значение_число > pf["value"])
+            
+            elif pf.get("operator") == "<":
+                query = query.join(ParameterValue, ParameterValue.изделие_id == Product.id)\
+                             .filter(ParameterValue.параметр_класса_id.in_(param_class_subq))\
+                             .filter(ParameterValue.значение_число < pf["value"])
+            
+            elif pf.get("operator") == "between":
+                query = query.join(ParameterValue, ParameterValue.изделие_id == Product.id)\
+                             .filter(ParameterValue.параметр_класса_id.in_(param_class_subq))\
+                             .filter(ParameterValue.значение_число.between(pf["min"], pf["max"]))
+        
+        products = query.all()
+        return [{"id": p.id, "наименование": p.наименование, "артикул": p.артикул} for p in products]
