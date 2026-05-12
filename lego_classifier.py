@@ -620,20 +620,56 @@ class LegoClassifier:
             return {"success": False, "message": str(e)}
     
     def clear_database(self, db: Session):
-        """Очистка базы данных"""
-        db.query(SetMinifigure).delete()
-        db.query(SetPart).delete()
-        db.query(Minifigure).delete()
-        db.query(Part).delete()
-        db.query(Set).delete()
-        db.query(PartType).delete()
-        db.query(AgeCategory).delete()
-        db.query(Theme).delete()
-        db.query(Classificator).delete()
-        db.query(Enumeration).delete()
-        db.query(EnumValue).delete()
+        """Полная очистка БД с перезапуском последовательностей (сброс ID)"""
+        
+        # Получаем список всех таблиц в правильном порядке (сначала зависимые)
+        tables = [
+            "значение_параметра",      # зависит от параметр_класса, изделие
+            "фигурки_в_наборе",        # зависит от набор, мини_фигурка
+            "состав_набора",           # зависит от набор, деталь
+            "изделие",                 # зависит от классификатор
+            "значение_перечисления",   # зависит от перечисление
+            "параметр_класса",         # зависит от классификатор, параметр
+            "мини_фигурка",            # зависит от классификатор
+            "деталь",                  # зависит от классификатор
+            "набор",                   # зависит от классификатор
+            "параметр",                # независимая
+            "перечисление",            # независимая
+            "тип_детали",              # зависит от классификатор
+            "возрастная_категория",    # зависит от классификатор
+            "тематика",                # зависит от классификатор
+            "классификатор",           # корневая
+        ]
+        
+        # Очищаем таблицы
+        for table in tables:
+            db.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+        
+        # Сбрасываем последовательности (счётчики ID)
+        sequences = [
+            "классификатор_id_seq",
+            "тематика_id_seq",
+            "возрастная_категория_id_seq",
+            "тип_детали_id_seq",
+            "набор_id_seq",
+            "деталь_id_seq",
+            "мини_фигурка_id_seq",
+            "перечисление_id_seq",
+            "значение_перечисления_id_seq",
+            "параметр_id_seq",
+            "параметр_класса_id_seq",
+            "изделие_id_seq",
+            "значение_параметра_id_seq",
+        ]
+        
+        for seq in sequences:
+            try:
+                db.execute(text(f"ALTER SEQUENCE {seq} RESTART WITH 1"))
+            except Exception:
+                pass  # последовательность может не существовать
+        
         db.commit()
-        print("База данных очищена")
+        print("База данных очищена, последовательности сброшены")
     
     def load_test_data(self, db: Session) -> Dict[str, Any]:
         """Загрузка тестовых данных"""
@@ -710,6 +746,105 @@ class LegoClassifier:
         
         age_14 = db.query(AgeCategory).filter(AgeCategory.минимальный_возраст == 14).first()
         age_6 = db.query(AgeCategory).filter(AgeCategory.минимальный_возраст == 6).first()
+
+                # ========== ПАРАМЕТРЫ И СПРАВОЧНИК ИЗДЕЛИЙ (ЗАДАНИЕ 1.3) ==========
+        print("  Создаём параметры...")
+        
+        # Создаём параметры
+        params = {}
+        
+        # Параметр "вес" (REAL)
+        result = self.add_parameter(db, "вес", "Вес изделия", "REAL", "кг")
+        if result["success"]:
+            params["вес"] = result["param_id"]
+            print(f"    Создан параметр 'вес' (id={params['вес']})")
+        
+        # Параметр "длина" (REAL)
+        result = self.add_parameter(db, "длина", "Длина изделия", "REAL", "мм")
+        if result["success"]:
+            params["длина"] = result["param_id"]
+            print(f"    Создан параметр 'длина' (id={params['длина']})")
+        
+        # Параметр "цвет" (ENUM) — ссылается на существующее перечисление "Цвет детали"
+        enum_color = db.query(Enumeration).filter(Enumeration.name == "Цвет детали").first()
+        if enum_color:
+            result = self.add_parameter(db, "цвет", "Цвет изделия", "ENUM", перечисление_id=enum_color.id)
+            if result["success"]:
+                params["цвет"] = result["param_id"]
+                print(f"    Создан параметр 'цвет' (id={params['цвет']})")
+        
+        # Параметр "материал" (STRING)
+        result = self.add_parameter(db, "материал", "Материал изделия", "STRING")
+        if result["success"]:
+            params["материал"] = result["param_id"]
+            print(f"    Создан параметр 'материал' (id={params['материал']})")
+        
+        # Привязываем параметры к классу "Кирпич 2x4"
+        brick_2x4 = db.query(Classificator).filter(Classificator.название == "Кирпич 2x4").first()
+        if brick_2x4:
+            print(f"  Привязываем параметры к классу 'Кирпич 2x4' (id={brick_2x4.id})...")
+            
+            if "вес" in params:
+                self.add_param_to_class(db, brick_2x4.id, params["вес"], мин_значение=0, макс_значение=10)
+            if "длина" in params:
+                self.add_param_to_class(db, brick_2x4.id, params["длина"], мин_значение=0, макс_значение=100)
+            if "цвет" in params:
+                self.add_param_to_class(db, brick_2x4.id, params["цвет"])
+            if "материал" in params:
+                self.add_param_to_class(db, brick_2x4.id, params["материал"])
+        
+        # Создаём тестовые изделия
+        print("  Создаём тестовые изделия...")
+        
+        if brick_2x4:
+            # Кирпич красный
+            product_red = self.add_product(db, brick_2x4.id, "Кирпич красный", "BR001")
+            # Кирпич синий
+            product_blue = self.add_product(db, brick_2x4.id, "Кирпич синий", "BR002")
+            
+            # Получаем параметры класса с их param_class_id
+            class_params = self.get_class_parameters(db, brick_2x4.id, include_inherited=False)
+            param_class_map = {cp["обозначение"]: cp["param_class_id"] for cp in class_params}
+            
+            # Получаем ID значений для цвета
+            red_val = None
+            blue_val = None
+            if enum_color:
+                red_val = db.query(EnumValue).filter(
+                    EnumValue.enumeration_id == enum_color.id,
+                    EnumValue.value == "Красный"
+                ).first()
+                blue_val = db.query(EnumValue).filter(
+                    EnumValue.enumeration_id == enum_color.id,
+                    EnumValue.value == "Синий"
+                ).first()
+            
+            # Устанавливаем значения для красного кирпича
+            if product_red["success"] and product_red["product_id"]:
+                pid = product_red["product_id"]
+                if "вес" in param_class_map:
+                    self.set_product_param_value(db, pid, param_class_map["вес"], 2.5)
+                if "длина" in param_class_map:
+                    self.set_product_param_value(db, pid, param_class_map["длина"], 50)
+                if "цвет" in param_class_map and red_val:
+                    self.set_product_param_value(db, pid, param_class_map["цвет"], red_val.id)
+                if "материал" in param_class_map:
+                    self.set_product_param_value(db, pid, param_class_map["материал"], "Пластик")
+            
+            # Устанавливаем значения для синего кирпича
+            if product_blue["success"] and product_blue["product_id"]:
+                pid = product_blue["product_id"]
+                if "вес" in param_class_map:
+                    self.set_product_param_value(db, pid, param_class_map["вес"], 2.5)
+                if "длина" in param_class_map:
+                    self.set_product_param_value(db, pid, param_class_map["длина"], 50)
+                if "цвет" in param_class_map and blue_val:
+                    self.set_product_param_value(db, pid, param_class_map["цвет"], blue_val.id)
+                if "материал" in param_class_map:
+                    self.set_product_param_value(db, pid, param_class_map["материал"], "Пластик")
+        
+        db.commit()
+        print("  Параметры и изделия добавлены")
         
         # 10. Добавление наборов
         self.add_set(db, "Звезда Смерти", "75159", 2020, 499.99, 4016, age_14.id, star_wars_theme.id, sets_id)

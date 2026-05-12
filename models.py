@@ -193,7 +193,7 @@ class ParameterClass(Base):
     # Relationships
     parameter = relationship("Parameter", back_populates="class_links")
     class_node = relationship("Classificator", foreign_keys=[класс_id])
-    values = relationship("ParameterValue", back_populates="parameter_class")
+    values = relationship("ParameterValue", back_populates="parameter_class", cascade="all, delete-orphan")
 
 
 class Product(Base):

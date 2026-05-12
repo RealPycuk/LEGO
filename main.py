@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from typing import List, Optional, Dict, Any
 
 from config import config
-from models import Base, Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure
+from models import Base, Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure, ParameterClass, Parameter
 from schemas import *
 from lego_classifier import LegoClassifier
 
@@ -400,6 +400,32 @@ def get_parameters(db: Session = Depends(get_db)):
     """Получить все параметры"""
     return classifier.get_all_parameters(db)
 
+# ==================== DELETE PARAMETER ====================
+
+@app.delete("/parameters/{parameter_id}", response_model=OperationResult)
+def delete_parameter(parameter_id: int, db: Session = Depends(get_db)):
+    """Удалить параметр (только если он не привязан ни к одному классу)"""
+    
+    # Проверяем, существует ли параметр
+    param = db.query(Parameter).filter(Parameter.id == parameter_id).first()
+    if not param:
+        raise HTTPException(status_code=404, detail="Параметр не найден")
+    
+    # Проверяем, не привязан ли параметр к каким-либо классам
+    param_class_count = db.query(ParameterClass).filter(ParameterClass.параметр_id == parameter_id).count()
+    if param_class_count > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Невозможно удалить параметр: он привязан к {param_class_count} классам"
+        )
+    
+    try:
+        db.delete(param)
+        db.commit()
+        return {"success": True, "message": f"Параметр '{param.обозначение}' удалён", "param_id": parameter_id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 # ==================== CLASS PARAMETERS ====================
 
 @app.get("/classes/{class_id}/parameters", response_model=List[Dict[str, Any]])
@@ -419,6 +445,20 @@ def add_param_to_class(class_id: int, data: ParameterClassCreate, db: Session = 
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
+@app.delete("/classes/parameters/{param_class_id}", response_model=OperationResult)
+def remove_param_from_class(param_class_id: int, db: Session = Depends(get_db)):
+    """Удалить привязку параметра к классу"""
+    param_class = db.query(ParameterClass).filter(ParameterClass.id == param_class_id).first()
+    if not param_class:
+        raise HTTPException(status_code=404, detail="Привязка параметра к классу не найдена")
+    
+    try:
+        db.delete(param_class)
+        db.commit()
+        return {"success": True, "message": "Параметр отвязан от класса", "param_class_id": param_class_id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 # ==================== PRODUCTS ====================
 
 @app.post("/products", response_model=OperationResult)
