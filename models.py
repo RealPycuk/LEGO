@@ -227,3 +227,123 @@ class ParameterValue(Base):
     product = relationship("Product", back_populates="parameter_values")
     parameter_class = relationship("ParameterClass", back_populates="values")
     enum_value = relationship("EnumValue", foreign_keys=[значение_перечисление_id])
+
+
+# ========== НОВЫЕ ТАБЛИЦЫ ДЛЯ ЗАДАНИЯ 1.4 (ХОЗЯЙСТВЕННЫЕ ОПЕРАЦИИ) ==========
+
+class HOType(Base):
+    """Тип хозяйственной операции (иерархический классификатор)"""
+    __tablename__ = "классификатор_хо"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    название = Column(String(200), nullable=False)
+    родительский_id = Column(Integer, ForeignKey("классификатор_хо.id", ondelete="CASCADE"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    children = relationship("HOType", backref="parent", remote_side=[id])
+    roles = relationship("HORole", back_populates="ho_type", cascade="all, delete-orphan")
+    parameters = relationship("HOParameter", back_populates="ho_type", cascade="all, delete-orphan")
+    operations = relationship("HOOperation", back_populates="ho_type")
+
+
+class HORole(Base):
+    """Роль участника в операции (например, «Отправитель»)"""
+    __tablename__ = "роль_хо"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    тип_хо_id = Column(Integer, ForeignKey("классификатор_хо.id", ondelete="CASCADE"), nullable=False)
+    название = Column(String(100), nullable=False)
+    допустимый_класс_СХД = Column(Integer, nullable=True)  # id узла классификатора (тип субъекта)
+
+    ho_type = relationship("HOType", back_populates="roles")
+    assignments = relationship("HORoleAssignment", back_populates="role", cascade="all, delete-orphan")
+
+
+class HOParameter(Base):
+    """Параметр, привязанный к типу ХО"""
+    __tablename__ = "параметр_хо"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    тип_хо_id = Column(Integer, ForeignKey("классификатор_хо.id", ondelete="CASCADE"), nullable=False)
+    параметр_id = Column(Integer, ForeignKey("параметр.id", ondelete="CASCADE"), nullable=False)   # ссылка на параметр из 1.3
+    порядковый_номер = Column(Integer, default=0)
+    обязательный = Column(Integer, default=0)   # 0/1
+
+    ho_type = relationship("HOType", back_populates="parameters")
+    parameter = relationship("Parameter")
+    values = relationship("HOParameterValue", back_populates="ho_parameter", cascade="all, delete-orphan")
+
+
+class Subject(Base):
+    """Субъект хозяйственной деятельности (контрагент, подразделение)"""
+    __tablename__ = "субъект_хоз_деятельности"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    наименование = Column(String(200), nullable=False)
+    инн = Column(String(12), nullable=True)
+    контактное_лицо = Column(String(100), nullable=True)
+    телефон = Column(String(20), nullable=True)
+
+    role_assignments = relationship("HORoleAssignment", back_populates="subject")
+
+
+class HOOperation(Base):
+    """Экземпляр хозяйственной операции"""
+    __tablename__ = "хозяйственная_операция"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    тип_хо_id = Column(Integer, ForeignKey("классификатор_хо.id", ondelete="CASCADE"), nullable=False)
+    номер_документа = Column(String(50), nullable=False)
+    дата = Column(DateTime, nullable=False)
+    сумма = Column(Float, default=0.0)
+
+    ho_type = relationship("HOType", back_populates="operations")
+    role_assignments = relationship("HORoleAssignment", back_populates="operation", cascade="all, delete-orphan")
+    parameter_values = relationship("HOParameterValue", back_populates="operation", cascade="all, delete-orphan")
+    items = relationship("HOItem", back_populates="operation", cascade="all, delete-orphan")
+
+
+class HORoleAssignment(Base):
+    """Назначение конкретного субъекта на роль в конкретной ХО"""
+    __tablename__ = "роль_в_хо"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    операция_id = Column(Integer, ForeignKey("хозяйственная_операция.id", ondelete="CASCADE"), nullable=False)
+    роль_хо_id = Column(Integer, ForeignKey("роль_хо.id", ondelete="CASCADE"), nullable=False)
+    субъект_хо_id = Column(Integer, ForeignKey("субъект_хоз_деятельности.id", ondelete="SET NULL"), nullable=True)
+
+    operation = relationship("HOOperation", back_populates="role_assignments")
+    role = relationship("HORole", back_populates="assignments")
+    subject = relationship("Subject", back_populates="role_assignments")
+
+
+class HOParameterValue(Base):
+    """Значение параметра для конкретной ХО"""
+    __tablename__ = "значение_параметра_хо"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    операция_id = Column(Integer, ForeignKey("хозяйственная_операция.id", ondelete="CASCADE"), nullable=False)
+    параметр_хо_id = Column(Integer, ForeignKey("параметр_хо.id", ondelete="CASCADE"), nullable=False)
+    значение_число = Column(Float, nullable=True)
+    значение_строка = Column(Text, nullable=True)
+    значение_дата = Column(DateTime, nullable=True)
+    значение_перечисление_id = Column(Integer, ForeignKey("значение_перечисления.id", ondelete="SET NULL"), nullable=True)
+
+    operation = relationship("HOOperation", back_populates="parameter_values")
+    ho_parameter = relationship("HOParameter", back_populates="values")
+    enum_value = relationship("EnumValue", foreign_keys=[значение_перечисление_id])
+
+
+class HOItem(Base):
+    """Позиция (товарная строка) в ХО"""
+    __tablename__ = "позиция_хо"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    операция_id = Column(Integer, ForeignKey("хозяйственная_операция.id", ondelete="CASCADE"), nullable=False)
+    изделие_id = Column(Integer, ForeignKey("изделие.id", ondelete="CASCADE"), nullable=False)  # конкретное изделие из 1.3
+    количество = Column(Float, nullable=False)
+    цена = Column(Float, nullable=False)
+    сумма = Column(Float, nullable=False)   # количество * цена
+
+    operation = relationship("HOOperation", back_populates="items")
+    product = relationship("Product")

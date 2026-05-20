@@ -53,7 +53,7 @@ async def startup_event():
             print("База данных пуста, загружаем тестовые данные...")
             classifier.load_test_data(db)
 
-@app.get("/")
+@app.get("/", tags=["🏠 Главная"])
 def root():
     return {
         "message": "Lego Classifier API",
@@ -64,12 +64,12 @@ def root():
 
 # ==================== CATEGORIES ====================
 
-@app.get("/categories", response_model=List[Dict[str, Any]])
+@app.get("/categories", tags=["📂 Классификатор"], response_model=List[Dict[str, Any]])
 def get_categories(db: Session = Depends(get_db)):
     """Получить все категории"""
     return classifier.get_all_categories(db)
 
-@app.post("/categories", response_model=OperationResult)
+@app.post("/categories", tags=["📂 Классификатор"], response_model=OperationResult)
 def create_category(data: CategoryCreate, db: Session = Depends(get_db)):
     """Создать новую категорию"""
     result = classifier.add_node(db, data.name, "промежуточный", data.parent_id, sort_order=data.sort_order)
@@ -77,7 +77,7 @@ def create_category(data: CategoryCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.post("/categories/subcategory", response_model=OperationResult)
+@app.post("/categories/subcategory", tags=["📂 Классификатор"], response_model=OperationResult)
 def create_subcategory(data: SubcategoryCreate, db: Session = Depends(get_db)):
     """Создать подкатегорию"""
     parent_id = None
@@ -92,7 +92,7 @@ def create_subcategory(data: SubcategoryCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.put("/categories/{node_id}/move", response_model=OperationResult)
+@app.put("/categories/{node_id}/move", tags=["📂 Классификатор"], response_model=OperationResult)
 def move_category(node_id: int, data: MoveNode, db: Session = Depends(get_db)):
     """Переместить категорию"""
     result = classifier.move_node(db, node_id, data.new_parent_id)
@@ -100,7 +100,7 @@ def move_category(node_id: int, data: MoveNode, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.delete("/categories/{node_id}", response_model=OperationResult)
+@app.delete("/categories/{node_id}", tags=["📂 Классификатор"], response_model=OperationResult)
 def delete_category(node_id: int, db: Session = Depends(get_db)):
     """Удалить категорию"""
     result = classifier.delete_node(db, node_id)
@@ -108,7 +108,7 @@ def delete_category(node_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.put("/categories/{parent_id}/reorder", response_model=OperationResult)
+@app.put("/categories/{parent_id}/reorder", tags=["📂 Классификатор"], response_model=OperationResult)
 def reorder_children(parent_id: int, data: ReorderChildren, db: Session = Depends(get_db)):
     """Изменить порядок потомков"""
     result = classifier.reorder_children(db, parent_id, data.ordered_child_ids)
@@ -116,7 +116,7 @@ def reorder_children(parent_id: int, data: ReorderChildren, db: Session = Depend
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.put("/categories/{node_id}/base-unit", response_model=OperationResult)
+@app.put("/categories/{node_id}/base-unit", tags=["📂 Классификатор"], response_model=OperationResult)
 def set_base_unit(node_id: int, data: SetBaseUnit, db: Session = Depends(get_db)):
     """Установить единицу измерения"""
     result = classifier.set_base_unit(db, node_id, data.base_ei_id)
@@ -124,51 +124,51 @@ def set_base_unit(node_id: int, data: SetBaseUnit, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.get("/categories/{node_id}/descendants")
+@app.get("/categories/{node_id}/descendants", tags=["📂 Классификатор"])
 def get_descendants(node_id: int, db: Session = Depends(get_db)):
     """Получить всех потомков узла"""
     return classifier.get_descendants(db, node_id)
 
-@app.get("/categories/{node_id}/ancestors")
+@app.get("/categories/{node_id}/ancestors", tags=["📂 Классификатор"])
 def get_ancestors(node_id: int, db: Session = Depends(get_db)):
     """Получить всех родителей узла"""
     return classifier.get_ancestors(db, node_id)
 
-@app.get("/categories/{node_id}/terminals")
+@app.get("/categories/{node_id}/terminals", tags=["📂 Классификатор"])
 def get_terminal_descendants(node_id: int, db: Session = Depends(get_db)):
     """Получить терминальные классы"""
     return classifier.get_terminal_descendants(db, node_id)
 
-@app.get("/cycles")
+@app.get("/cycles", tags=["📂 Классификатор"])
 def detect_cycles(db: Session = Depends(get_db)):
     """Диагностика циклов"""
     return classifier.detect_cycles(db)
 
 # ==================== SEARCH ====================
 
-@app.get("/search/theme", response_model=List[SetSearchResult])
+@app.get("/search/theme", tags=["🔍 Поиск"], response_model=List[SetSearchResult])
 def search_by_theme(theme: str = Query(..., description="Название тематики"), db: Session = Depends(get_db)):
     """Поиск наборов по тематике"""
     return classifier.search_by_theme(db, theme)
 
-@app.get("/search/age", response_model=List[AgeSearchResult])
+@app.get("/search/age", tags=["🔍 Поиск"], response_model=List[AgeSearchResult])
 def search_by_age(age: int = Query(..., description="Возраст"), db: Session = Depends(get_db)):
     """Поиск наборов по возрасту"""
     return classifier.search_by_age(db, age)
 
-@app.get("/search/part-type", response_model=List[PartSearchResult])
+@app.get("/search/part-type", tags=["🔍 Поиск"], response_model=List[PartSearchResult])
 def search_by_part_type(part_type: str = Query(..., description="Тип детали"), db: Session = Depends(get_db)):
     """Поиск деталей по типу"""
     return classifier.search_by_part_type(db, part_type)
 
 # ==================== SETS ====================
 
-@app.get("/sets", response_model=List[Dict[str, Any]])
+@app.get("/sets", tags=["🧩 Наборы"], response_model=List[Dict[str, Any]])
 def get_all_sets(db: Session = Depends(get_db)):
     """Получить все наборы"""
     return classifier.get_all_sets(db)
 
-@app.post("/sets", response_model=OperationResult)
+@app.post("/sets", tags=["🧩 Наборы"], response_model=OperationResult)
 def create_set(data: SetCreate, db: Session = Depends(get_db)):
     """Создать набор"""
     result = classifier.add_set(
@@ -179,19 +179,19 @@ def create_set(data: SetCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.get("/sets/{set_id}/contents")
+@app.get("/sets/{set_id}/contents", tags=["🧩 Наборы"])
 def get_set_contents(set_id: int, db: Session = Depends(get_db)):
     """Получить состав набора"""
     return classifier.get_set_contents(db, set_id)
 
 # ==================== PARTS ====================
 
-@app.get("/parts", response_model=List[Dict[str, Any]])
+@app.get("/parts", tags=["🔧 Детали"], response_model=List[Dict[str, Any]])
 def get_all_parts(db: Session = Depends(get_db)):
     """Получить все детали"""
     return classifier.get_all_parts(db)
 
-@app.post("/parts", response_model=OperationResult)
+@app.post("/parts", tags=["🔧 Детали"], response_model=OperationResult)
 def create_part(data: PartCreate, db: Session = Depends(get_db)):
     """Создать деталь"""
     result = classifier.add_part(db, data.name, data.color, data.size, data.weight, data.part_type_id)
@@ -201,12 +201,12 @@ def create_part(data: PartCreate, db: Session = Depends(get_db)):
 
 # ==================== MINIFIGURES ====================
 
-@app.get("/minifigures", response_model=List[Dict[str, Any]])
+@app.get("/minifigures", tags=["🧸 Мини-фигурки"], response_model=List[Dict[str, Any]])
 def get_all_minifigures(db: Session = Depends(get_db)):
     """Получить все мини-фигурки"""
     return classifier.get_all_minifigures(db)
 
-@app.post("/minifigures", response_model=OperationResult)
+@app.post("/minifigures", tags=["🧸 Мини-фигурки"], response_model=OperationResult)
 def create_minifigure(data: MinifigureCreate, db: Session = Depends(get_db)):
     """Создать мини-фигурку"""
     result = classifier.add_minifigure(db, data.name, data.character, data.series, data.unique_code)
@@ -216,12 +216,12 @@ def create_minifigure(data: MinifigureCreate, db: Session = Depends(get_db)):
 
 # ==================== DIRECTORIES ====================
 
-@app.get("/themes", response_model=List[ThemeResponse])
+@app.get("/themes", tags=["📚 Справочники"], response_model=List[ThemeResponse])
 def get_themes(db: Session = Depends(get_db)):
     """Получить все тематики"""
     return classifier.get_all_themes(db)
 
-@app.post("/themes", response_model=OperationResult)
+@app.post("/themes", tags=["📚 Справочники"], response_model=OperationResult)
 def create_theme(data: ThemeCreate, db: Session = Depends(get_db)):
     """Создать тематику"""
     result = classifier.add_theme(db, data.name, data.description)
@@ -229,12 +229,12 @@ def create_theme(data: ThemeCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.get("/age-categories", response_model=List[AgeCategoryResponse])
+@app.get("/age-categories", tags=["📚 Справочники"], response_model=List[AgeCategoryResponse])
 def get_age_categories(db: Session = Depends(get_db)):
     """Получить все возрастные категории"""
     return classifier.get_all_age_categories(db)
 
-@app.post("/age-categories", response_model=OperationResult)
+@app.post("/age-categories", tags=["📚 Справочники"], response_model=OperationResult)
 def create_age_category(data: AgeCategoryCreate, db: Session = Depends(get_db)):
     """Создать возрастную категорию"""
     result = classifier.add_age_category(db, data.name, data.min_age, data.max_age)
@@ -242,12 +242,12 @@ def create_age_category(data: AgeCategoryCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.get("/part-types", response_model=List[PartTypeResponse])
+@app.get("/part-types", tags=["📚 Справочники"], response_model=List[PartTypeResponse])
 def get_part_types(db: Session = Depends(get_db)):
     """Получить все типы деталей"""
     return classifier.get_all_part_types(db)
 
-@app.post("/part-types", response_model=OperationResult)
+@app.post("/part-types", tags=["📚 Справочники"], response_model=OperationResult)
 def create_part_type(data: PartTypeCreate, db: Session = Depends(get_db)):
     """Создать тип детали"""
     result = classifier.add_part_type(db, data.name, data.hierarchy_level)
@@ -257,95 +257,19 @@ def create_part_type(data: PartTypeCreate, db: Session = Depends(get_db)):
 
 # ==================== UTILITIES ====================
 
-@app.post("/test-data")
+@app.post("/test-data", tags=["🛠️ Сервисные"])
 def load_test_data(db: Session = Depends(get_db)):
     """Загрузить тестовые данные"""
     result = classifier.load_test_data(db)
     return result
 
-@app.delete("/clear")
+@app.delete("/clear", tags=["🛠️ Сервисные"])
 def clear_database(db: Session = Depends(get_db)):
     """Очистить базу данных"""
     classifier.clear_database(db)
     return {"success": True, "message": "База данных очищена"}
 
-@app.post("/enumerations", response_model=OperationResult)
-def create_enumeration(data: EnumerationCreate, db: Session = Depends(get_db)):
-    """Создать новое перечисление"""
-    result = classifier.add_enumeration(db, data.name, data.description)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["message"])
-    return result
-
-@app.get("/enumerations", response_model=List[EnumerationResponse])
-def get_enumerations(db: Session = Depends(get_db)):
-    """Получить все перечисления"""
-    return classifier.get_all_enumerations(db)
-
-@app.get("/enumerations/{enum_id}", response_model=EnumerationResponse)
-def get_enumeration(enum_id: int, db: Session = Depends(get_db)):
-    """Получить перечисление по ID"""
-    result = classifier.get_enumeration_by_id(db, enum_id)
-    if not result["success"]:
-        raise HTTPException(status_code=404, detail=result["message"])
-    return result
-
-@app.put("/enumerations/{enum_id}", response_model=OperationResult)
-def update_enumeration(enum_id: int, data: EnumerationCreate, db: Session = Depends(get_db)):
-    """Обновить перечисление"""
-    result = classifier.update_enumeration(db, enum_id, data.name, data.description)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["message"])
-    return result
-
-@app.delete("/enumerations/{enum_id}", response_model=OperationResult)
-def delete_enumeration(enum_id: int, db: Session = Depends(get_db)):
-    """Удалить перечисление"""
-    result = classifier.delete_enumeration(db, enum_id)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["message"])
-    return result
-
-# ----- Значения перечислений -----
-
-@app.post("/enumerations/{enum_id}/values", response_model=OperationResult)
-def create_enum_value(enum_id: int, data: EnumValueCreate, db: Session = Depends(get_db)):
-    """Добавить значение в перечисление"""
-    result = classifier.add_enum_value(db, enum_id, data.value, data.sort_order, data.extra_data)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["message"])
-    return result
-
-@app.get("/enumerations/{enum_id}/values", response_model=List[EnumValueResponse])
-def get_enum_values(enum_id: int, db: Session = Depends(get_db)):
-    """Получить все значения перечисления"""
-    return classifier.get_enum_values(db, enum_id)
-
-@app.put("/enum-values/{value_id}", response_model=OperationResult)
-def update_enum_value(value_id: int, data: EnumValueCreate, db: Session = Depends(get_db)):
-    """Обновить значение перечисления"""
-    result = classifier.update_enum_value(db, value_id, data.value, data.sort_order, data.extra_data)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["message"])
-    return result
-
-@app.put("/enumerations/{enum_id}/values/reorder", response_model=OperationResult)
-def reorder_enum_values(enum_id: int, data: EnumValueReorder, db: Session = Depends(get_db)):
-    """Изменить порядок значений перечисления"""
-    result = classifier.reorder_enum_values(db, enum_id, data.ordered_ids)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["message"])
-    return result
-
-@app.delete("/enum-values/{value_id}", response_model=OperationResult)
-def delete_enum_value(value_id: int, db: Session = Depends(get_db)):
-    """Удалить значение перечисления"""
-    result = classifier.delete_enum_value(db, value_id)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["message"])
-    return result
-
-@app.post("/reset-database")
+@app.post("/reset-database", tags=["🛠️ Сервисные"])
 def reset_database():
     """Полностью пересоздаёт базу данных (только для разработки!)"""
     import psycopg2
@@ -382,9 +306,87 @@ def reset_database():
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+# ==================== ENUMERATIONS ====================
+
+@app.post("/enumerations", tags=["🔢 Перечисления"], response_model=OperationResult)
+def create_enumeration(data: EnumerationCreate, db: Session = Depends(get_db)):
+    """Создать новое перечисление"""
+    result = classifier.add_enumeration(db, data.name, data.description)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/enumerations", tags=["🔢 Перечисления"], response_model=List[EnumerationResponse])
+def get_enumerations(db: Session = Depends(get_db)):
+    """Получить все перечисления"""
+    return classifier.get_all_enumerations(db)
+
+@app.get("/enumerations/{enum_id}", tags=["🔢 Перечисления"], response_model=EnumerationResponse)
+def get_enumeration(enum_id: int, db: Session = Depends(get_db)):
+    """Получить перечисление по ID"""
+    result = classifier.get_enumeration_by_id(db, enum_id)
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result["message"])
+    return result
+
+@app.put("/enumerations/{enum_id}", tags=["🔢 Перечисления"], response_model=OperationResult)
+def update_enumeration(enum_id: int, data: EnumerationCreate, db: Session = Depends(get_db)):
+    """Обновить перечисление"""
+    result = classifier.update_enumeration(db, enum_id, data.name, data.description)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.delete("/enumerations/{enum_id}", tags=["🔢 Перечисления"], response_model=OperationResult)
+def delete_enumeration(enum_id: int, db: Session = Depends(get_db)):
+    """Удалить перечисление"""
+    result = classifier.delete_enumeration(db, enum_id)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+# ----- Значения перечислений -----
+
+@app.post("/enumerations/{enum_id}/values", tags=["🔢 Перечисления"], response_model=OperationResult)
+def create_enum_value(enum_id: int, data: EnumValueCreate, db: Session = Depends(get_db)):
+    """Добавить значение в перечисление"""
+    result = classifier.add_enum_value(db, enum_id, data.value, data.sort_order, data.extra_data)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/enumerations/{enum_id}/values", tags=["🔢 Перечисления"], response_model=List[EnumValueResponse])
+def get_enum_values(enum_id: int, db: Session = Depends(get_db)):
+    """Получить все значения перечисления"""
+    return classifier.get_enum_values(db, enum_id)
+
+@app.put("/enum-values/{value_id}", tags=["🔢 Перечисления"], response_model=OperationResult)
+def update_enum_value(value_id: int, data: EnumValueCreate, db: Session = Depends(get_db)):
+    """Обновить значение перечисления"""
+    result = classifier.update_enum_value(db, value_id, data.value, data.sort_order, data.extra_data)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.put("/enumerations/{enum_id}/values/reorder", tags=["🔢 Перечисления"], response_model=OperationResult)
+def reorder_enum_values(enum_id: int, data: EnumValueReorder, db: Session = Depends(get_db)):
+    """Изменить порядок значений перечисления"""
+    result = classifier.reorder_enum_values(db, enum_id, data.ordered_ids)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.delete("/enum-values/{value_id}", tags=["🔢 Перечисления"], response_model=OperationResult)
+def delete_enum_value(value_id: int, db: Session = Depends(get_db)):
+    """Удалить значение перечисления"""
+    result = classifier.delete_enum_value(db, value_id)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
 # ==================== PARAMETERS (ЗАДАНИЕ 1.3) ====================
 
-@app.post("/parameters", response_model=OperationResult)
+@app.post("/parameters", tags=["⚙️ Параметры"], response_model=OperationResult)
 def create_parameter(data: ParameterCreate, db: Session = Depends(get_db)):
     """Создать новый параметр"""
     result = classifier.add_parameter(
@@ -395,17 +397,14 @@ def create_parameter(data: ParameterCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.get("/parameters", response_model=List[ParameterResponse])
+@app.get("/parameters", tags=["⚙️ Параметры"], response_model=List[ParameterResponse])
 def get_parameters(db: Session = Depends(get_db)):
     """Получить все параметры"""
     return classifier.get_all_parameters(db)
 
-# ==================== DELETE PARAMETER ====================
-
-@app.delete("/parameters/{parameter_id}", response_model=OperationResult)
+@app.delete("/parameters/{parameter_id}", tags=["⚙️ Параметры"], response_model=OperationResult)
 def delete_parameter(parameter_id: int, db: Session = Depends(get_db)):
     """Удалить параметр (только если он не привязан ни к одному классу)"""
-    
     # Проверяем, существует ли параметр
     param = db.query(Parameter).filter(Parameter.id == parameter_id).first()
     if not param:
@@ -426,14 +425,15 @@ def delete_parameter(parameter_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
 # ==================== CLASS PARAMETERS ====================
 
-@app.get("/classes/{class_id}/parameters", response_model=List[Dict[str, Any]])
+@app.get("/classes/{class_id}/parameters", tags=["⚙️ Параметры"], response_model=List[Dict[str, Any]])
 def get_class_parameters(class_id: int, include_inherited: bool = True, db: Session = Depends(get_db)):
     """Получить параметры класса (с наследованием)"""
     return classifier.get_class_parameters(db, class_id, include_inherited)
 
-@app.post("/classes/{class_id}/parameters", response_model=OperationResult)
+@app.post("/classes/{class_id}/parameters", tags=["⚙️ Параметры"], response_model=OperationResult)
 def add_param_to_class(class_id: int, data: ParameterClassCreate, db: Session = Depends(get_db)):
     """Привязать параметр к классу"""
     result = classifier.add_param_to_class(
@@ -445,7 +445,7 @@ def add_param_to_class(class_id: int, data: ParameterClassCreate, db: Session = 
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.delete("/classes/parameters/{param_class_id}", response_model=OperationResult)
+@app.delete("/classes/parameters/{param_class_id}", tags=["⚙️ Параметры"], response_model=OperationResult)
 def remove_param_from_class(param_class_id: int, db: Session = Depends(get_db)):
     """Удалить привязку параметра к классу"""
     param_class = db.query(ParameterClass).filter(ParameterClass.id == param_class_id).first()
@@ -459,9 +459,10 @@ def remove_param_from_class(param_class_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
 # ==================== PRODUCTS ====================
 
-@app.post("/products", response_model=OperationResult)
+@app.post("/products", tags=["🏷️ Изделия"], response_model=OperationResult)
 def create_product(data: ProductCreate, db: Session = Depends(get_db)):
     """Создать новое изделие"""
     result = classifier.add_product(db, data.класс_id, data.наименование, data.артикул)
@@ -469,17 +470,17 @@ def create_product(data: ProductCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-@app.get("/products", response_model=List[ProductResponse])
+@app.get("/products", tags=["🏷️ Изделия"], response_model=List[ProductResponse])
 def get_products(db: Session = Depends(get_db)):
     """Получить все изделия"""
     return classifier.get_all_products(db)
 
-@app.get("/products/{product_id}/values", response_model=List[Dict[str, Any]])
+@app.get("/products/{product_id}/values", tags=["🏷️ Изделия"], response_model=List[Dict[str, Any]])
 def get_product_values(product_id: int, db: Session = Depends(get_db)):
     """Получить все значения параметров изделия"""
     return classifier.get_product_params_with_values(db, product_id)
 
-@app.post("/products/{product_id}/values", response_model=OperationResult)
+@app.post("/products/{product_id}/values", tags=["🏷️ Изделия"], response_model=OperationResult)
 def set_product_value(product_id: int, data: ParameterValueCreate, db: Session = Depends(get_db)):
     """Установить значение параметра для изделия"""
     result = classifier.set_product_param_value(db, product_id, data.param_class_id, data.value)
@@ -487,9 +488,7 @@ def set_product_value(product_id: int, data: ParameterValueCreate, db: Session =
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-# ==================== FILTER ====================
-
-@app.post("/products/filter")
+@app.post("/products/filter", tags=["🏷️ Изделия"])
 def filter_products(data: ProductFilter, db: Session = Depends(get_db)):
     """Фильтрация изделий по классам и параметрам"""
     param_filters = []
@@ -498,3 +497,89 @@ def filter_products(data: ProductFilter, db: Session = Depends(get_db)):
     result = classifier.filter_products(db, data.class_ids, param_filters)
     return result
 
+# ==================== ХОЗЯЙСТВЕННЫЕ ОПЕРАЦИИ (ЗАДАНИЕ 1.4) ====================
+
+# Типы ХО
+@app.post("/ho-types", tags=["📦 Хозяйственные операции"], response_model=OperationResult)
+def create_ho_type(data: HOTypeCreate, db: Session = Depends(get_db)):
+    result = classifier.add_ho_type(db, data.название, data.родительский_id)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/ho-types", tags=["📦 Хозяйственные операции"], response_model=List[HOTypeResponse])
+def get_ho_types(db: Session = Depends(get_db)):
+    return classifier.get_all_ho_types(db)
+
+# Роли ХО
+@app.post("/ho-types/{type_id}/roles", tags=["📦 Хозяйственные операции"], response_model=OperationResult)
+def add_role_to_ho_type(type_id: int, data: HORoleCreate, db: Session = Depends(get_db)):
+    result = classifier.add_role_to_ho_type(db, type_id, data.название, data.допустимый_класс_СХД)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/ho-types/{type_id}/roles", tags=["📦 Хозяйственные операции"], response_model=List[HORoleResponse])
+def get_roles_of_ho_type(type_id: int, db: Session = Depends(get_db)):
+    return classifier.get_roles_of_ho_type(db, type_id)
+
+# Параметры для ХО
+@app.post("/ho-types/{type_id}/parameters", tags=["📦 Хозяйственные операции"], response_model=OperationResult)
+def add_parameter_to_ho_type(type_id: int, data: HOParameterCreate, db: Session = Depends(get_db)):
+    result = classifier.add_parameter_to_ho_type(db, type_id, data.параметр_id, data.порядковый_номер, data.обязательный)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/ho-types/{type_id}/parameters", tags=["📦 Хозяйственные операции"], response_model=List[Dict[str, Any]])
+def get_ho_type_parameters(type_id: int, db: Session = Depends(get_db)):
+    return classifier.get_ho_type_parameters(db, type_id)
+
+# Субъекты
+@app.post("/subjects", tags=["📦 Хозяйственные операции"], response_model=OperationResult)
+def create_subject(data: SubjectCreate, db: Session = Depends(get_db)):
+    result = classifier.add_subject(db, data.наименование, data.инн, data.контактное_лицо, data.телефон)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/subjects", tags=["📦 Хозяйственные операции"], response_model=List[SubjectResponse])
+def get_subjects(db: Session = Depends(get_db)):
+    return classifier.get_all_subjects(db)
+
+# Экземпляры ХО
+@app.post("/ho-operations", tags=["📦 Хозяйственные операции"], response_model=OperationResult)
+def create_ho_operation(data: HOOperationCreate, db: Session = Depends(get_db)):
+    result = classifier.create_ho_operation(db, data.тип_хо_id, data.номер_документа, data.дата)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.put("/ho-operations/{op_id}/actors", tags=["📦 Хозяйственные операции"], response_model=OperationResult)
+def assign_actor(op_id: int, data: HORoleAssignmentCreate, db: Session = Depends(get_db)):
+    result = classifier.assign_actor_to_role(db, op_id, data.роль_хо_id, data.субъект_хо_id)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.post("/ho-operations/{op_id}/values", tags=["📦 Хозяйственные операции"], response_model=OperationResult)
+def set_ho_parameter_value(op_id: int, data: HOParameterValueCreate, db: Session = Depends(get_db)):
+    result = classifier.write_ho_parameter_value(db, op_id, data.параметр_хо_id, data.value)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.post("/ho-operations/{op_id}/items", tags=["📦 Хозяйственные операции"], response_model=OperationResult)
+def add_ho_item(op_id: int, data: HOItemCreate, db: Session = Depends(get_db)):
+    result = classifier.add_ho_item(db, op_id, data.изделие_id, data.количество, data.цена)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.get("/ho-operations/{op_id}", tags=["📦 Хозяйственные операции"], response_model=Dict[str, Any])
+def get_ho_operation_full(op_id: int, db: Session = Depends(get_db)):
+    return classifier.get_ho_operation_full(db, op_id)
+
+@app.post("/ho-operations/filter", tags=["📦 Хозяйственные операции"], response_model=List[Dict[str, Any]])
+def filter_ho_operations(filters: HOFilter, db: Session = Depends(get_db)):
+    return classifier.filter_ho_operations(db, filters.тип_хо_id, filters.дата_от, filters.дата_до, filters.сумма_мин, filters.сумма_макс)

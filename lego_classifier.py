@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from models import Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure, SetPart, SetMinifigure, Enumeration, EnumValue, Parameter, ParameterClass, Product, ParameterValue
-
+from models import (Classificator, Theme, AgeCategory, PartType, Set, Part, Minifigure,
+                    SetPart, SetMinifigure, Enumeration, EnumValue, Parameter, ParameterClass,
+                    Product, ParameterValue, HOType, HORole, HOParameter, Subject, HOOperation,
+                    HORoleAssignment, HOParameterValue, HOItem)
 
 class LegoClassifier:
     def __init__(self, engine):
@@ -619,6 +621,335 @@ class LegoClassifier:
             db.rollback()
             return {"success": False, "message": str(e)}
     
+    # ========== ХОЗЯЙСТВЕННЫЕ ОПЕРАЦИИ (ЗАДАНИЕ 1.4) ==========
+
+    # --- Типы ХО ---
+    def add_ho_type(self, db: Session, название: str, родительский_id: int = None) -> Dict[str, Any]:
+        """Создать новый тип ХО (возможно, с наследованием)"""
+        try:
+            new_type = HOType(название=название, родительский_id=родительский_id)
+            db.add(new_type)
+            db.commit()
+            db.refresh(new_type)
+            # Наследуем роли и параметры от родителя
+            if родительский_id:
+                parent = db.query(HOType).filter(HOType.id == родительский_id).first()
+                if parent:
+                    # Копируем роли
+                    for role in parent.roles:
+                        self.add_role_to_ho_type(db, new_type.id, role.название, role.допустимый_класс_СХД)
+                    # Копируем параметры
+                    for hp in parent.parameters:
+                        self.add_parameter_to_ho_type(db, new_type.id, hp.параметр_id, hp.порядковый_номер, hp.обязательный)
+            return {"success": True, "message": "Тип ХО создан", "type_id": new_type.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_all_ho_types(self, db: Session) -> List[Dict[str, Any]]:
+        """Получить все типы ХО (деревом)"""
+        types = db.query(HOType).all()
+        return [{"id": t.id, "название": t.название, "родительский_id": t.родительский_id, "created_at": t.created_at} for t in types]
+
+    # --- Роли ---
+    def add_role_to_ho_type(self, db: Session, тип_хо_id: int, название: str, допустимый_класс_СХД: int = None) -> Dict[str, Any]:
+        """Добавить допустимую роль для типа ХО"""
+        try:
+            role = HORole(тип_хо_id=тип_хо_id, название=название, допустимый_класс_СХД=допустимый_класс_СХД)
+            db.add(role)
+            db.commit()
+            db.refresh(role)
+            return {"success": True, "message": "Роль добавлена", "role_id": role.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_roles_of_ho_type(self, db: Session, тип_хо_id: int) -> List[Dict[str, Any]]:
+        """Получить список ролей для типа ХО"""
+        roles = db.query(HORole).filter(HORole.тип_хо_id == тип_хо_id).all()
+        return [{"id": r.id, "название": r.название, "допустимый_класс_СХД": r.допустимый_класс_СХД} for r in roles]
+
+    # --- Параметры для ХО ---
+    def add_parameter_to_ho_type(self, db: Session, тип_хо_id: int, параметр_id: int,
+                                    порядковый_номер: int = None, обязательный: bool = False) -> Dict[str, Any]:
+        """Привязать существующий параметр (из 1.3) к типу ХО"""
+        if порядковый_номер is None:
+            max_order = db.query(func.coalesce(func.max(HOParameter.порядковый_номер), 0)).filter(
+                HOParameter.тип_хо_id == тип_хо_id
+            ).scalar()
+            порядковый_номер = max_order + 1
+        try:
+            hp = HOParameter(тип_хо_id=тип_хо_id, параметр_id=параметр_id,
+                                порядковый_номер=порядковый_номер, обязательный=1 if обязательный else 0)
+            db.add(hp)
+            db.commit()
+            db.refresh(hp)
+            return {"success": True, "message": "Параметр привязан к типу ХО", "hoparam_id": hp.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_ho_type_parameters(self, db: Session, тип_хо_id: int) -> List[Dict[str, Any]]:
+        """Получить параметры для типа ХО (с учётом наследования)"""
+        # Собираем все параметры по иерархии типов
+        type_ids = []
+        current_id = тип_хо_id
+        while current_id:
+            type_ids.append(current_id)
+            parent = db.query(HOType).filter(HOType.id == current_id).first()
+            current_id = parent.родительский_id if parent else None
+        params = db.query(HOParameter).filter(HOParameter.тип_хо_id.in_(type_ids)).all()
+        result = []
+        for hp in params:
+            param = db.query(Parameter).filter(Parameter.id == hp.параметр_id).first()
+            result.append({
+                "hoparam_id": hp.id,
+                "параметр_id": param.id,
+                "обозначение": param.обозначение,
+                "полное_имя": param.полное_имя,
+                "тип_параметра": param.тип_параметра,
+                "единица_измерения": param.единица_измерения,
+                "порядковый_номер": hp.порядковый_номер,
+                "обязательный": hp.обязательный
+            })
+        result.sort(key=lambda x: x["порядковый_номер"])
+        return result
+
+    # --- Субъекты (контрагенты) ---
+    def add_subject(self, db: Session, наименование: str, инн: str = None, контактное_лицо: str = None, телефон: str = None) -> Dict[str, Any]:
+        """Добавить нового субъекта хозяйственной деятельности"""
+        try:
+            subj = Subject(наименование=наименование, инн=инн, контактное_лицо=контактное_лицо, телефон=телефон)
+            db.add(subj)
+            db.commit()
+            db.refresh(subj)
+            return {"success": True, "message": "Субъект добавлен", "subject_id": subj.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_all_subjects(self, db: Session) -> List[Dict[str, Any]]:
+        subjects = db.query(Subject).all()
+        return [{"id": s.id, "наименование": s.наименование, "инн": s.инн, "контактное_лицо": s.контактное_лицо, "телефон": s.телефон} for s in subjects]
+
+    # --- Экземпляры ХО ---
+    def create_ho_operation(self, db: Session, тип_хо_id: int, номер_документа: str, дата: datetime) -> Dict[str, Any]:
+        """Создать экземпляр ХО. Автоматически создаются заготовки для параметров и ролей."""
+        try:
+            op = HOOperation(тип_хо_id=тип_хо_id, номер_документа=номер_документа, дата=дата, сумма=0.0)
+            db.add(op)
+            db.flush()
+
+            # Создать заготовки параметров ХО (со значениями NULL)
+            ho_params = self.get_ho_type_parameters(db, тип_хо_id)
+            for hp in ho_params:
+                pv = HOParameterValue(операция_id=op.id, параметр_хо_id=hp["hoparam_id"])
+                db.add(pv)
+
+            # Создать заготовки ролей (без назначенных субъектов)
+            roles = self.get_roles_of_ho_type(db, тип_хо_id)
+            for r in roles:
+                ra = HORoleAssignment(операция_id=op.id, роль_хо_id=r["id"])
+                db.add(ra)
+
+            db.commit()
+            db.refresh(op)
+            return {"success": True, "message": "ХО создана", "operation_id": op.id}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def assign_actor_to_role(self, db: Session, операция_id: int, роль_хо_id: int, субъект_хо_id: int) -> Dict[str, Any]:
+        """Назначить конкретного субъекта на роль в ХО"""
+        # Проверить, что роль существует для данной операции
+        assignment = db.query(HORoleAssignment).filter(
+            HORoleAssignment.операция_id == операция_id,
+            HORoleAssignment.роль_хо_id == роль_хо_id
+        ).first()
+        if not assignment:
+            return {"success": False, "message": "Роль не найдена в данной операции"}
+        try:
+            assignment.субъект_хо_id = субъект_хо_id
+            db.commit()
+            return {"success": True, "message": "Субъект назначен на роль"}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def write_ho_parameter_value(self, db: Session, операция_id: int, параметр_хо_id: int, value: Any) -> Dict[str, Any]:
+        """Записать значение параметра для ХО (с валидацией типа)"""
+        pv = db.query(HOParameterValue).filter(
+            HOParameterValue.операция_id == операция_id,
+            HOParameterValue.параметр_хо_id == параметр_хо_id
+        ).first()
+        if not pv:
+            return {"success": False, "message": "Параметр не найден для данной операции"}
+
+        # Получить описание параметра из HOParameter -> Parameter
+        hp = db.query(HOParameter).filter(HOParameter.id == параметр_хо_id).first()
+        if not hp:
+            return {"success": False, "message": "Ошибка привязки параметра"}
+        param = db.query(Parameter).filter(Parameter.id == hp.параметр_id).first()
+        if not param:
+            return {"success": False, "message": "Параметр не найден"}
+
+        # Валидация (аналогично 1.3, но без ограничений мин/макс, т.к. они на уровне ParameterClass, а здесь их нет)
+        validated = self._validate_param_value_for_ho(db, param, value)  # отдельный метод (см. ниже)
+        if not validated["success"]:
+            return validated
+
+        # Заполняем поля
+        try:
+            pv.значение_число = validated.get("число")
+            pv.значение_строка = validated.get("строка")
+            pv.значение_дата = validated.get("дата")
+            pv.значение_перечисление_id = validated.get("перечисление_id")
+            db.commit()
+            return {"success": True, "message": "Значение параметра сохранено"}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def _validate_param_value_for_ho(self, db: Session, param: Parameter, value: Any) -> Dict:
+        """Вспомогательная валидация для параметров ХО (без ограничений)"""
+        if param.тип_параметра == 'REAL':
+            try:
+                num_val = float(value)
+            except:
+                return {"success": False, "message": f"Значение '{value}' не является числом"}
+            return {"success": True, "число": num_val}
+        elif param.тип_параметра == 'INTEGER':
+            try:
+                int_val = int(value)
+            except:
+                return {"success": False, "message": f"Значение '{value}' не является целым числом"}
+            return {"success": True, "число": int_val}
+        elif param.тип_параметра == 'STRING':
+            return {"success": True, "строка": str(value)}
+        elif param.тип_параметра == 'DATETIME':
+            try:
+                if isinstance(value, datetime):
+                    dt_val = value
+                else:
+                    dt_val = datetime.fromisoformat(str(value))
+            except:
+                return {"success": False, "message": f"Значение '{value}' не является датой"}
+            return {"success": True, "дата": dt_val}
+        elif param.тип_параметра == 'ENUM':
+            if not param.перечисление_id:
+                return {"success": False, "message": "Для параметра-перечисления не указано перечисление"}
+            enum_value = db.query(EnumValue).filter(
+                EnumValue.id == value,
+                EnumValue.enumeration_id == param.перечисление_id
+            ).first()
+            if not enum_value:
+                return {"success": False, "message": f"Значение с ID {value} не найдено в перечислении"}
+            return {"success": True, "перечисление_id": enum_value.id}
+        return {"success": False, "message": f"Неизвестный тип параметра: {param.тип_параметра}"}
+
+    def add_ho_item(self, db: Session, операция_id: int, изделие_id: int, количество: float, цена: float) -> Dict[str, Any]:
+        """Добавить товарную позицию в ХО (автоматически пересчитать сумму операции)"""
+        try:
+            сумма = количество * цена
+            item = HOItem(операция_id=операция_id, изделие_id=изделие_id,
+                            количество=количество, цена=цена, сумма=сумма)
+            db.add(item)
+            # Обновить общую сумму операции
+            total = db.query(func.sum(HOItem.сумма)).filter(HOItem.операция_id == операция_id).scalar() or 0
+            db.query(HOOperation).filter(HOOperation.id == операция_id).update({"сумма": total})
+            db.commit()
+            return {"success": True, "message": "Позиция добавлена", "item_id": item.id, "сумма_операции": total}
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "message": str(e)}
+
+    def get_ho_operation_full(self, db: Session, операция_id: int) -> Dict[str, Any]:
+        """Получить полную информацию о ХО: данные, параметры с значениями, роли с субъектами, позиции"""
+        op = db.query(HOOperation).filter(HOOperation.id == операция_id).first()
+        if not op:
+            return {}
+
+        # Основные данные
+        result = {
+            "id": op.id,
+            "тип_хо_id": op.тип_хо_id,
+            "тип_название": op.ho_type.название if op.ho_type else None,
+            "номер_документа": op.номер_документа,
+            "дата": op.дата.isoformat(),
+            "сумма": op.сумма,
+            "роли": [],
+            "параметры": [],
+            "позиции": []
+        }
+
+        # Роли
+        for ra in op.role_assignments:
+            role_name = ra.role.название if ra.role else None
+            subject_name = ra.subject.наименование if ra.subject else None
+            result["роли"].append({
+                "роль": role_name,
+                "субъект": subject_name,
+                "субъект_id": ra.субъект_хо_id
+            })
+
+        # Параметры
+        for pv in op.parameter_values:
+            hp = pv.ho_parameter
+            param = hp.parameter if hp else None
+            value_display = None
+            if pv.значение_число is not None:
+                value_display = pv.значение_число
+            elif pv.значение_строка is not None:
+                value_display = pv.значение_строка
+            elif pv.значение_дата is not None:
+                value_display = pv.значение_дата.isoformat()
+            elif pv.значение_перечисление_id is not None:
+                ev = pv.enum_value
+                value_display = ev.value if ev else None
+            result["параметры"].append({
+                "обозначение": param.обозначение if param else None,
+                "полное_имя": param.полное_имя if param else None,
+                "тип": param.тип_параметра if param else None,
+                "значение": value_display
+            })
+
+        # Позиции
+        for item in op.items:
+            prod = item.product
+            result["позиции"].append({
+                "изделие": prod.наименование if prod else None,
+                "количество": item.количество,
+                "цена": item.цена,
+                "сумма": item.сумма
+            })
+
+        return result
+
+    def filter_ho_operations(self, db: Session, тип_хо_id: int = None,
+                                дата_от: datetime = None, дата_до: datetime = None,
+                                сумма_мин: float = None, сумма_макс: float = None) -> List[Dict[str, Any]]:
+        """Фильтрация ХО по типу, дате, сумме"""
+        query = db.query(HOOperation)
+        if тип_хо_id:
+            query = query.filter(HOOperation.тип_хо_id == тип_хо_id)
+        if дата_от:
+            query = query.filter(HOOperation.дата >= дата_от)
+        if дата_до:
+            query = query.filter(HOOperation.дата <= дата_до)
+        if сумма_мин is not None:
+            query = query.filter(HOOperation.сумма >= сумма_мин)
+        if сумма_макс is not None:
+            query = query.filter(HOOperation.сумма <= сумма_макс)
+        ops = query.all()
+        return [{
+            "id": o.id,
+            "номер_документа": o.номер_документа,
+            "дата": o.дата.isoformat(),
+            "сумма": o.сумма,
+            "тип_хо_id": o.тип_хо_id,
+            "тип_название": o.ho_type.название if o.ho_type else None
+        } for o in ops]
+        
     def clear_database(self, db: Session):
         """Полная очистка БД с перезапуском последовательностей (сброс ID)"""
         

@@ -291,3 +291,94 @@ class ParamFilter(BaseModel):
 class ProductFilter(BaseModel):
     class_ids: Optional[List[int]] = None
     param_filters: Optional[List[ParamFilter]] = None
+
+# ========== СХЕМЫ ДЛЯ ХОЗЯЙСТВЕННЫХ ОПЕРАЦИЙ (ЗАДАНИЕ 1.4) ==========
+
+# Типы ХО
+class HOTypeCreate(BaseModel):
+    название: str
+    родительский_id: Optional[int] = None
+
+class HOTypeResponse(BaseModel):
+    id: int
+    название: str
+    родительский_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# Роли
+class HORoleCreate(BaseModel):
+    название: str
+    допустимый_класс_СХД: Optional[int] = None
+
+class HORoleResponse(BaseModel):
+    id: int
+    тип_хо_id: int
+    название: str
+    допустимый_класс_СХД: Optional[int] = None
+
+# Параметры ХО
+class HOParameterCreate(BaseModel):
+    параметр_id: int
+    порядковый_номер: Optional[int] = None
+    обязательный: bool = False
+
+# Субъекты
+class SubjectCreate(BaseModel):
+    наименование: str
+    инн: Optional[str] = None
+    контактное_лицо: Optional[str] = None
+    телефон: Optional[str] = None
+
+class SubjectResponse(BaseModel):
+    id: int
+    наименование: str
+    инн: Optional[str] = None
+    контактное_лицо: Optional[str] = None
+    телефон: Optional[str] = None
+
+# Экземпляры ХО
+class HOOperationCreate(BaseModel):
+    тип_хо_id: int
+    номер_документа: str
+    дата: datetime
+
+class HOOperationResponse(BaseModel):
+    id: int
+    тип_хо_id: int
+    номер_документа: str
+    дата: datetime
+    сумма: float
+
+# Назначение роли
+class HORoleAssignmentCreate(BaseModel):
+    роль_хо_id: int
+    субъект_хо_id: int
+
+# Значение параметра ХО
+class HOParameterValueCreate(BaseModel):
+    параметр_хо_id: int
+    value: Any
+
+# Позиция ХО
+class HOItemCreate(BaseModel):
+    изделие_id: int
+    количество: float
+    цена: float
+
+class HOItemResponse(BaseModel):
+    id: int
+    изделие_id: int
+    количество: float
+    цена: float
+    сумма: float
+
+# Фильтр
+class HOFilter(BaseModel):
+    тип_хо_id: Optional[int] = None
+    дата_от: Optional[datetime] = None
+    дата_до: Optional[datetime] = None
+    сумма_мин: Optional[float] = None
+    сумма_макс: Optional[float] = None
