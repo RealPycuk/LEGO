@@ -626,6 +626,11 @@ class LegoClassifier:
     # --- Типы ХО ---
     def add_ho_type(self, db: Session, название: str, родительский_id: int = None) -> Dict[str, Any]:
         """Создать новый тип ХО (возможно, с наследованием)"""
+        # Проверка на дублирование названия
+        exists = db.query(HOType).filter(HOType.название == название).first()
+        if exists:
+            return {"success": False, "message": f"Тип ХО с названием '{название}' уже существует"}
+        
         try:
             new_type = HOType(название=название, родительский_id=родительский_id)
             db.add(new_type)
@@ -635,10 +640,8 @@ class LegoClassifier:
             if родительский_id:
                 parent = db.query(HOType).filter(HOType.id == родительский_id).first()
                 if parent:
-                    # Копируем роли
                     for role in parent.roles:
                         self.add_role_to_ho_type(db, new_type.id, role.название, role.допустимый_класс_СХД)
-                    # Копируем параметры
                     for hp in parent.parameters:
                         self.add_parameter_to_ho_type(db, new_type.id, hp.параметр_id, hp.порядковый_номер, hp.обязательный)
             return {"success": True, "message": "Тип ХО создан", "type_id": new_type.id}
@@ -654,6 +657,19 @@ class LegoClassifier:
     # --- Роли ---
     def add_role_to_ho_type(self, db: Session, тип_хо_id: int, название: str, допустимый_класс_СХД: int = None) -> Dict[str, Any]:
         """Добавить допустимую роль для типа ХО"""
+        # Проверка существования типа ХО
+        ho_type = db.query(HOType).filter(HOType.id == тип_хо_id).first()
+        if not ho_type:
+            return {"success": False, "message": f"Тип ХО с id {тип_хо_id} не найден"}
+        
+        # Проверка на дублирование роли
+        exists = db.query(HORole).filter(
+            HORole.тип_хо_id == тип_хо_id,
+            HORole.название == название
+        ).first()
+        if exists:
+            return {"success": False, "message": f"Роль '{название}' уже существует для типа ХО '{ho_type.название}'"}
+        
         try:
             role = HORole(тип_хо_id=тип_хо_id, название=название, допустимый_класс_СХД=допустимый_класс_СХД)
             db.add(role)
@@ -667,12 +683,35 @@ class LegoClassifier:
     def get_roles_of_ho_type(self, db: Session, тип_хо_id: int) -> List[Dict[str, Any]]:
         """Получить список ролей для типа ХО"""
         roles = db.query(HORole).filter(HORole.тип_хо_id == тип_хо_id).all()
-        return [{"id": r.id, "название": r.название, "допустимый_класс_СХД": r.допустимый_класс_СХД} for r in roles]
+        return [{
+            "id": r.id,
+            "тип_хо_id": r.тип_хо_id,
+            "название": r.название,
+            "допустимый_класс_СХД": r.допустимый_класс_СХД
+        } for r in roles]
 
     # --- Параметры для ХО ---
     def add_parameter_to_ho_type(self, db: Session, тип_хо_id: int, параметр_id: int,
-                                    порядковый_номер: int = None, обязательный: bool = False) -> Dict[str, Any]:
+                             порядковый_номер: int = None, обязательный: bool = False) -> Dict[str, Any]:
         """Привязать существующий параметр (из 1.3) к типу ХО"""
+        # Проверка существования типа ХО
+        ho_type = db.query(HOType).filter(HOType.id == тип_хо_id).first()
+        if not ho_type:
+            return {"success": False, "message": f"Тип ХО с id {тип_хо_id} не найден"}
+        
+        # Проверка существования параметра
+        param = db.query(Parameter).filter(Parameter.id == параметр_id).first()
+        if not param:
+            return {"success": False, "message": f"Параметр с id {параметр_id} не найден"}
+        
+        # Проверка на дублирование привязки
+        exists = db.query(HOParameter).filter(
+            HOParameter.тип_хо_id == тип_хо_id,
+            HOParameter.параметр_id == параметр_id
+        ).first()
+        if exists:
+            return {"success": False, "message": f"Параметр '{param.обозначение}' уже привязан к типу ХО '{ho_type.название}'"}
+        
         if порядковый_номер is None:
             max_order = db.query(func.coalesce(func.max(HOParameter.порядковый_номер), 0)).filter(
                 HOParameter.тип_хо_id == тип_хо_id
@@ -680,7 +719,7 @@ class LegoClassifier:
             порядковый_номер = max_order + 1
         try:
             hp = HOParameter(тип_хо_id=тип_хо_id, параметр_id=параметр_id,
-                                порядковый_номер=порядковый_номер, обязательный=1 if обязательный else 0)
+                            порядковый_номер=порядковый_номер, обязательный=1 if обязательный else 0)
             db.add(hp)
             db.commit()
             db.refresh(hp)
@@ -735,6 +774,16 @@ class LegoClassifier:
     # --- Экземпляры ХО ---
     def create_ho_operation(self, db: Session, тип_хо_id: int, номер_документа: str, дата: datetime) -> Dict[str, Any]:
         """Создать экземпляр ХО. Автоматически создаются заготовки для параметров и ролей."""
+        # Проверка существования типа ХО
+        ho_type = db.query(HOType).filter(HOType.id == тип_хо_id).first()
+        if not ho_type:
+            return {"success": False, "message": f"Тип ХО с id {тип_хо_id} не найден"}
+        
+        # Проверка на дублирование номера документа
+        exists = db.query(HOOperation).filter(HOOperation.номер_документа == номер_документа).first()
+        if exists:
+            return {"success": False, "message": f"Операция с номером документа '{номер_документа}' уже существует"}
+        
         try:
             op = HOOperation(тип_хо_id=тип_хо_id, номер_документа=номер_документа, дата=дата, сумма=0.0)
             db.add(op)
@@ -761,17 +810,33 @@ class LegoClassifier:
 
     def assign_actor_to_role(self, db: Session, операция_id: int, роль_хо_id: int, субъект_хо_id: int) -> Dict[str, Any]:
         """Назначить конкретного субъекта на роль в ХО"""
-        # Проверить, что роль существует для данной операции
+        # Проверка существования операции
+        operation = db.query(HOOperation).filter(HOOperation.id == операция_id).first()
+        if not operation:
+            return {"success": False, "message": f"Операция с id {операция_id} не найдена"}
+        
+        # Проверка существования роли
+        role = db.query(HORole).filter(HORole.id == роль_хо_id).first()
+        if not role:
+            return {"success": False, "message": f"Роль с id {роль_хо_id} не найдена"}
+        
+        # Проверка существования субъекта
+        subject = db.query(Subject).filter(Subject.id == субъект_хо_id).first()
+        if not subject:
+            return {"success": False, "message": f"Субъект с id {субъект_хо_id} не найден"}
+        
+        # Проверка, что роль существует для данной операции
         assignment = db.query(HORoleAssignment).filter(
             HORoleAssignment.операция_id == операция_id,
             HORoleAssignment.роль_хо_id == роль_хо_id
         ).first()
         if not assignment:
             return {"success": False, "message": "Роль не найдена в данной операции"}
+        
         try:
             assignment.субъект_хо_id = субъект_хо_id
             db.commit()
-            return {"success": True, "message": "Субъект назначен на роль"}
+            return {"success": True, "message": f"Субъект '{subject.наименование}' назначен на роль '{role.название}'"}
         except Exception as e:
             db.rollback()
             return {"success": False, "message": str(e)}
@@ -849,12 +914,29 @@ class LegoClassifier:
 
     def add_ho_item(self, db: Session, операция_id: int, изделие_id: int, количество: float, цена: float) -> Dict[str, Any]:
         """Добавить товарную позицию в ХО (автоматически пересчитать сумму операции)"""
+        # Проверка корректности количества
+        if количество <= 0:
+            return {"success": False, "message": "Количество должно быть положительным числом"}
+        
+        # Проверка корректности цены
+        if цена < 0:
+            return {"success": False, "message": "Цена не может быть отрицательной"}
+        
+        # Проверка существования операции
+        operation = db.query(HOOperation).filter(HOOperation.id == операция_id).first()
+        if not operation:
+            return {"success": False, "message": f"Операция с id {операция_id} не найдена"}
+        
+        # Проверка существования изделия
+        product = db.query(Product).filter(Product.id == изделие_id).first()
+        if not product:
+            return {"success": False, "message": f"Изделие с id {изделие_id} не найдено"}
+        
         try:
             сумма = количество * цена
             item = HOItem(операция_id=операция_id, изделие_id=изделие_id,
-                            количество=количество, цена=цена, сумма=сумма)
+                        количество=количество, цена=цена, сумма=сумма)
             db.add(item)
-            # Обновить общую сумму операции
             total = db.query(func.sum(HOItem.сумма)).filter(HOItem.операция_id == операция_id).scalar() or 0
             db.query(HOOperation).filter(HOOperation.id == операция_id).update({"сумма": total})
             db.commit()
@@ -952,32 +1034,68 @@ class LegoClassifier:
         
     def clear_database(self, db: Session):
         """Полная очистка БД с перезапуском последовательностей (сброс ID)"""
-        
+
         # Получаем список всех таблиц в правильном порядке (сначала зависимые)
         tables = [
-            "значение_параметра",      # зависит от параметр_класса, изделие
-            "фигурки_в_наборе",        # зависит от набор, мини_фигурка
-            "состав_набора",           # зависит от набор, деталь
-            "изделие",                 # зависит от классификатор
-            "значение_перечисления",   # зависит от перечисление
-            "параметр_класса",         # зависит от классификатор, параметр
-            "мини_фигурка",            # зависит от классификатор
-            "деталь",                  # зависит от классификатор
-            "набор",                   # зависит от классификатор
-            "параметр",                # независимая
-            "перечисление",            # независимая
-            "тип_детали",              # зависит от классификатор
-            "возрастная_категория",    # зависит от классификатор
-            "тематика",                # зависит от классификатор
-            "классификатор",           # корневая
+            # Задание 1.4 (ХО) - самые зависимые
+            "позиция_хо",                 # зависит от хозяйственная_операция, изделие
+            "значение_параметра_хо",      # зависит от хозяйственная_операция, параметр_хо
+            "роль_в_хо",                  # зависит от хозяйственная_операция, роль_хо, субъект_хоз_деятельности
+            "хозяйственная_операция",     # зависит от классификатор_хо
+            "параметр_хо",                # зависит от классификатор_хо, параметр
+            "роль_хо",                    # зависит от классификатор_хо
+            "классификатор_хо",           # корневая для ХО
+            "субъект_хоз_деятельности",   # независимая
+            
+            # Задание 1.3
+            "значение_параметра",         # зависит от параметр_класса, изделие
+            "изделие",                    # зависит от классификатор
+            "параметр_класса",            # зависит от классификатор, параметр
+            "параметр",                   # независимая
+            
+            # Задание 1.2
+            "значение_перечисления",      # зависит от перечисление
+            "перечисление",               # независимая
+            
+            # Задание 1.1
+            "фигурки_в_наборе",           # зависит от набор, мини_фигурка
+            "состав_набора",              # зависит от набор, деталь
+            "мини_фигурка",               # зависит от классификатор
+            "деталь",                     # зависит от классификатор
+            "набор",                      # зависит от классификатор
+            "тип_детали",                 # зависит от классификатор
+            "возрастная_категория",       # зависит от классификатор
+            "тематика",                   # зависит от классификатор
+            "классификатор",              # корневая
         ]
-        
+
         # Очищаем таблицы
         for table in tables:
-            db.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
-        
+            try:
+                db.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+            except Exception as e:
+                print(f"  Предупреждение: не удалось очистить таблицу {table}: {e}")
+
         # Сбрасываем последовательности (счётчики ID)
         sequences = [
+            # Задание 1.4
+            "классификатор_хо_id_seq",
+            "роль_хо_id_seq",
+            "параметр_хо_id_seq",
+            "субъект_хоз_деятельности_id_seq",
+            "хозяйственная_операция_id_seq",
+            "роль_в_хо_id_seq",
+            "значение_параметра_хо_id_seq",
+            "позиция_хо_id_seq",
+            # Задание 1.3
+            "параметр_id_seq",
+            "параметр_класса_id_seq",
+            "изделие_id_seq",
+            "значение_параметра_id_seq",
+            # Задание 1.2
+            "перечисление_id_seq",
+            "значение_перечисления_id_seq",
+            # Задание 1.1
             "классификатор_id_seq",
             "тематика_id_seq",
             "возрастная_категория_id_seq",
@@ -985,20 +1103,14 @@ class LegoClassifier:
             "набор_id_seq",
             "деталь_id_seq",
             "мини_фигурка_id_seq",
-            "перечисление_id_seq",
-            "значение_перечисления_id_seq",
-            "параметр_id_seq",
-            "параметр_класса_id_seq",
-            "изделие_id_seq",
-            "значение_параметра_id_seq",
         ]
-        
+
         for seq in sequences:
             try:
                 db.execute(text(f"ALTER SEQUENCE {seq} RESTART WITH 1"))
             except Exception:
                 pass  # последовательность может не существовать
-        
+
         db.commit()
         print("База данных очищена, последовательности сброшены")
     
@@ -1264,6 +1376,80 @@ class LegoClassifier:
         
         db.commit()
         print("  Тестовые перечисления добавлены")
+
+        # ========== ХОЗЯЙСТВЕННЫЕ ОПЕРАЦИИ (ЗАДАНИЕ 1.4) ==========
+        print("  Добавляем тестовые данные для ХО...")
+
+        # 1. Типы ХО
+        # Тип "Отгрузка" (корневой)
+        otgruzka = self.add_ho_type(db, "Отгрузка")
+        if otgruzka["success"]:
+            otgruzka_id = otgruzka["type_id"]
+            # Роли для отгрузки
+            self.add_role_to_ho_type(db, otgruzka_id, "Отправитель")
+            self.add_role_to_ho_type(db, otgruzka_id, "Получатель")
+            self.add_role_to_ho_type(db, otgruzka_id, "Плательщик")
+
+        # Тип "Поступление" (корневой)
+        postuplenie = self.add_ho_type(db, "Поступление")
+        if postuplenie["success"]:
+            postuplenie_id = postuplenie["type_id"]
+            self.add_role_to_ho_type(db, postuplenie_id, "Поставщик")
+            self.add_role_to_ho_type(db, postuplenie_id, "Получатель")
+
+        # 2. Субъекты (контрагенты)
+        self.add_subject(db, "ООО 'Поставщик'", инн="1234567890", контактное_лицо="Иванов И.И.", телефон="+7(123)456-78-90")
+        self.add_subject(db, "Склад №1")
+        self.add_subject(db, "ООО 'Покупатель'", инн="0987654321", контактное_лицо="Петров П.П.", телефон="+7(123)456-78-91")
+        self.add_subject(db, "Транспортная компания", инн="1122334455")
+
+        # Получаем ID созданных субъектов для использования в операциях
+        subjects = {s["наименование"]: s["id"] for s in self.get_all_subjects(db)}
+
+        # 3. Создаём экземпляры операций
+        # Операция отгрузки
+        if otgruzka["success"]:
+            op1 = self.create_ho_operation(db, otgruzka_id, "ТТН-001", datetime(2025, 5, 15))
+            if op1["success"]:
+                op_id = op1["operation_id"]
+                # Назначаем участников на роли
+                roles = self.get_roles_of_ho_type(db, otgruzka_id)
+                role_map = {r["название"]: r["id"] for r in roles}
+                if "Отправитель" in role_map and "ООО 'Поставщик'" in subjects:
+                    self.assign_actor_to_role(db, op_id, role_map["Отправитель"], subjects["ООО 'Поставщик'"])
+                if "Получатель" in role_map and "Склад №1" in subjects:
+                    self.assign_actor_to_role(db, op_id, role_map["Получатель"], subjects["Склад №1"])
+                if "Плательщик" in role_map and "ООО 'Покупатель'" in subjects:
+                    self.assign_actor_to_role(db, op_id, role_map["Плательщик"], subjects["ООО 'Покупатель'"])
+
+                # Добавляем позиции (товары)
+                # Получаем существующие изделия (кирпичи)
+                brick_red = db.query(Product).filter(Product.артикул == "BR001").first()
+                brick_blue = db.query(Product).filter(Product.артикул == "BR002").first()
+                if brick_red:
+                    self.add_ho_item(db, op_id, brick_red.id, 100, 50.0)
+                if brick_blue:
+                    self.add_ho_item(db, op_id, brick_blue.id, 50, 55.0)
+
+        # Операция поступления
+        if postuplenie["success"]:
+            op2 = self.create_ho_operation(db, postuplenie_id, "ПО-001", datetime(2025, 5, 16))
+            if op2["success"]:
+                op_id = op2["operation_id"]
+                roles = self.get_roles_of_ho_type(db, postuplenie_id)
+                role_map = {r["название"]: r["id"] for r in roles}
+                if "Поставщик" in role_map and "ООО 'Поставщик'" in subjects:
+                    self.assign_actor_to_role(db, op_id, role_map["Поставщик"], subjects["ООО 'Поставщик'"])
+                if "Получатель" in role_map and "Склад №1" in subjects:
+                    self.assign_actor_to_role(db, op_id, role_map["Получатель"], subjects["Склад №1"])
+
+                # Добавляем позицию
+                brick_red = db.query(Product).filter(Product.артикул == "BR001").first()
+                if brick_red:
+                    self.add_ho_item(db, op_id, brick_red.id, 200, 48.0)
+
+        db.commit()
+        print("  Тестовые данные для ХО добавлены")
         
         return {"success": True, "message": "Тестовые данные успешно загружены"}
     
