@@ -1850,3 +1850,155 @@ class LegoClassifier:
         
         products = query.all()
         return [{"id": p.id, "наименование": p.наименование, "артикул": p.артикул} for p in products]
+    
+    # lego_classifier.py - добавить в класс LegoClassifier
+
+    def build_category_tree(self, db: Session, root_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Построение дерева классификатора
+        
+        Args:
+            db: сессия БД
+            root_id: ID корневого узла (если None - строим от всех корневых узлов)
+        
+        Returns:
+            Список узлов с вложенными детьми
+        """
+        # Получаем все категории
+        categories = self.get_all_categories(db)
+        
+        # Создаем словарь для быстрого доступа по ID
+        nodes_dict = {}
+        for cat in categories:
+            nodes_dict[cat["id"]] = {
+                "id": cat["id"],
+                "name": cat["name"],
+                "node_type": cat["node_type"],
+                "parent_id": cat["parent_id"],
+                "sort_order": cat["sort_order"],
+                "children": []
+            }
+        
+        # Строим дерево
+        trees = []
+        for cat_id, node in nodes_dict.items():
+            parent_id = node["parent_id"]
+            if parent_id is None:
+                # Корневой узел
+                if root_id is None or cat_id == root_id:
+                    trees.append(node)
+            else:
+                # Добавляем в детей родителя
+                if parent_id in nodes_dict:
+                    nodes_dict[parent_id]["children"].append(node)
+    
+        # Сортируем детей по sort_order
+        def sort_children(node):
+            node["children"].sort(key=lambda x: x["sort_order"])
+            for child in node["children"]:
+                sort_children(child)
+        
+        for tree in trees:
+            sort_children(tree)
+            
+        return trees
+
+    def build_category_tree_with_products(self, db: Session, include_products: bool = True) -> List[Dict[str, Any]]:
+        """
+        Построение дерева классификатора с включением изделий (наборы, детали, фигурки)
+        
+        Args:
+            db: сессия БД
+            include_products: включать ли изделия в дерево
+        """
+        # Получаем все категории
+        categories = self.get_all_categories(db)
+        
+        # Создаем словарь узлов
+        nodes_dict = {}
+        for cat in categories:
+            nodes_dict[cat["id"]] = {
+                "id": cat["id"],
+                "name": cat["name"],
+                "node_type": cat["node_type"],
+                "parent_id": cat["parent_id"],
+                "sort_order": cat["sort_order"],
+                "children": [],
+                "products": []  # будет содержать изделия
+            }
+        
+        # Если нужно включить изделия
+        if include_products:
+            # Добавляем наборы
+            sets = self.get_all_sets(db)
+            for s in sets:
+                # Находим родительский узел для набора
+                set_node = db.query(Classificator).filter(
+                    Classificator.название == s["name"]
+                ).first()
+                if set_node and set_node.родительский_id:
+                    parent_id = set_node.родительский_id
+                    if parent_id in nodes_dict:
+                        nodes_dict[parent_id]["products"].append({
+                            "id": s["id"],
+                            "name": s["name"],
+                            "type": "set",
+                            "catalog_number": s["catalog_number"],
+                            "price": s["price"]
+                        })
+            
+            # Добавляем детали
+            parts = self.get_all_parts(db)
+            for p in parts:
+                part_node = db.query(Classificator).filter(
+                    Classificator.название == p["name"]
+                ).first()
+                if part_node and part_node.родительский_id:
+                    parent_id = part_node.родительский_id
+                    if parent_id in nodes_dict:
+                        nodes_dict[parent_id]["products"].append({
+                            "id": p["id"],
+                            "name": p["name"],
+                            "type": "part",
+                            "color": p["color"],
+                            "weight": p["weight"]
+                        })
+            
+            # Добавляем мини-фигурки
+            minifigs = self.get_all_minifigures(db)
+            for m in minifigs:
+                mf_node = db.query(Classificator).filter(
+                    Classificator.название == m["name"]
+                ).first()
+                if mf_node and mf_node.родительский_id:
+                    parent_id = mf_node.родительский_id
+                    if parent_id in nodes_dict:
+                        nodes_dict[parent_id]["products"].append({
+                            "id": m["id"],
+                            "name": m["name"],
+                            "type": "minifigure",
+                            "character": m["character"],
+                            "unique_code": m["unique_code"]
+                        })
+        
+        # Строим дерево
+        trees = []
+        for cat_id, node in nodes_dict.items():
+            parent_id = node["parent_id"]
+            if parent_id is None:
+                trees.append(node)
+            else:
+                if parent_id in nodes_dict:
+                    nodes_dict[parent_id]["children"].append(node)
+        
+        # Сортируем
+        def sort_node(node):
+            node["children"].sort(key=lambda x: x["sort_order"])
+            node["products"].sort(key=lambda x: x["name"])
+            for child in node["children"]:
+                sort_node(child)
+        
+        for tree in trees:
+            sort_node(tree)
+        
+        return trees
